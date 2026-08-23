@@ -5,3 +5,4 @@ google-generativeai
 streamlit-paste-button
 pillow
 gspread
+plotly
