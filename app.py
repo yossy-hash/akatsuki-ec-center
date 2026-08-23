@@ -12,52 +12,65 @@ st.set_page_config(
     layout="wide"
 )
 
+# 1行目メニューの文字拡大 ＆ 上部余白調整CSS
 st.markdown("""
     <head><meta name="google" content="notranslate"></head>
-    <style>html, body, [data-testid="stAppViewContainer"] { translate: no !important; }</style>
+    <style>
+        html, body, [data-testid="stAppViewContainer"] { translate: no !important; }
+        .block-container { padding-top: 3.5rem !important; padding-bottom: 0rem !important; }
+        
+        /* 1行目メニュー（タブ）：フォントサイズ1.8remへ巨大化 */
+        button[data-baseweb="tab"] p {
+            font-size: 1.8rem !important;
+            font-weight: 900 !important;
+            line-height: 1.2 !important;
+        }
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 20px !important;
+            border-bottom: 3px solid #555 !important;
+        }
+        .stTabs [data-baseweb="tab"] {
+            padding: 8px 16px !important;
+        }
+    </style>
 """, unsafe_allow_html=True)
 
-st.title("📦 AKATSUKI 統合ECコマンドセンター")
-
 try:
+    # データ読み込み
     df_raw_inventory = load_sheet_data("EC_Inventory")
     df_listing = load_sheet_data("T_Listing")
     df_purchase = load_sheet_data("T_Purchase")
     df_item = load_sheet_data("M_Item")
     df_sourcing = load_sheet_data("T_Sourcing")
 
-    raw_inventory_list = df_raw_inventory.to_dict(orient="records") if not df_raw_inventory.empty else []
-    total_raw_cnt = len(raw_inventory_list)
-    stock_hold_cnt = len([r for r in raw_inventory_list if str(r.get('数量', r.get('quantity', 1))).strip() not in ["0", ""]])
-    active_listing_cnt = len(df_listing[df_listing["listing_status"] == "出品中"]) if not df_listing.empty and "listing_status" in df_listing.columns else len(df_listing)
-    sourcing_cnt = len(df_sourcing) if not df_sourcing.empty else len(df_purchase)
-
-    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-    col_m1.metric("📦 総登録データ数", f"{total_raw_cnt} 件")
-    col_m2.metric("📦 在庫保持アイテム", f"{stock_hold_cnt} 件")
-    col_m3.metric("🚀 アクティブ出品数", f"{active_listing_cnt} 件")
-    col_m4.metric("🎯 仕入リサーチ候補", f"{sourcing_cnt} 件")
-
-    st.divider()
-
-    tab_pur, tab_stock, tab_site_list, tab_sourcing = st.tabs([
-        "📦 リアルタイム在庫一覧 ＆ 仕入金額推移",
-        "📊 商品マスター ＆ Keepa分析",
-        "🏢 サイト別 出品リスト ＆ 模擬プレビュー",
-        "🎯 仕入・リサーチ候補"
+    # 1行目：指定の5大メニュー
+    tab_sourcing, tab_stock, tab_listing, tab_shipping, tab_finance = st.tabs([
+        "🎯 リサーチ・仕入れ",
+        "📦 在庫",
+        "🚀 出品状況",
+        "🚚 出荷状況",
+        "💰 資金管理"
     ])
 
-    with tab_pur:
-        render_tab1_inventory(df_raw_inventory)
-
-    with tab_stock:
-        render_tab2_master(df_item, df_raw_inventory)
-
-    with tab_site_list:
-        render_tab3_listing(df_listing)
-
+    # 1. リサーチ・仕入れ
     with tab_sourcing:
         render_tab4_sourcing(df_sourcing, df_purchase)
+
+    # 2. 在庫（コンポーネントを正しく呼び出し）
+    with tab_stock:
+        render_tab1_inventory(df_raw_inventory)
+
+    # 3. 出品状況
+    with tab_listing:
+        render_tab3_listing(df_listing)
+
+    # 4. 出荷状況
+    with tab_shipping:
+        st.info("🚚 【出荷状況】モジュール準備中（発送ステータス管理・梱包リストを接続予定）")
+
+    # 5. 資金管理
+    with tab_finance:
+        render_tab2_master(df_item, df_raw_inventory)
 
 except Exception as e:
     st.error(f"システムエラーが発生しました: {e}")

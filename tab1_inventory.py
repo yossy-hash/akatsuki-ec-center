@@ -3,9 +3,10 @@ import streamlit as st
 import pandas as pd
 
 def render_tab1_inventory(df_raw_inventory):
-    # 赤枠ボタンの打ち消し ＆ ボタン極小化
+    # CSS: 赤い枠や巨大ボタンを完全に打ち消し、文字サイズを調整
     st.markdown("""
         <style>
+            /* 赤い枠や巨大ボタンの排除 */
             .stButton > button {
                 background-color: #333 !important;
                 color: #ccc !important;
@@ -15,6 +16,7 @@ def render_tab1_inventory(df_raw_inventory):
                 height: 26px !important;
                 min-height: 26px !important;
             }
+            /* ステータス絞り込み（ラジオボタン）の文字を大きく表示 */
             div[data-testid="stRadio"] label p {
                 font-size: 1.15rem !important;
                 font-weight: bold !important;
@@ -23,7 +25,7 @@ def render_tab1_inventory(df_raw_inventory):
         </style>
     """, unsafe_allow_html=True)
 
-    # 1. 見出し（小） ＆ スナップショット（右端の小さな灰色ボタン）
+    # 1. 最上部：見出し（文字小） ＆ スナップショット（右端の小さな灰色ボタン）
     c_title, c_btn = st.columns([4, 1])
     with c_title:
         st.markdown("<span style='font-size:0.85rem; color:#aaa;'>📦 リアルタイム在庫コントロール</span>", unsafe_allow_html=True)
@@ -31,12 +33,13 @@ def render_tab1_inventory(df_raw_inventory):
         if st.button("📷 ログ保存", key="btn_snap_clean"):
             st.toast("スナップショットを記録しました", icon="✅")
 
-    # 2. 絞り込みエリア（検索窓は完全削除）
+    # 2. 絞り込みエリア（キーワード検索窓は完全削除）
     c_status, c_cat, c_cond = st.columns([2.5, 1.2, 1.2])
 
     df = df_raw_inventory.copy() if not df_raw_inventory.empty else pd.DataFrame()
 
     with c_status:
+        # よく使うステータス絞り込み（大きく表示）
         status_filter = st.radio(
             "ステータス",
             ["すべて", "📦 在庫あり", "🟢 販売中", "⏳ 出品前・保管中"],
@@ -44,6 +47,7 @@ def render_tab1_inventory(df_raw_inventory):
             label_visibility="collapsed"
         )
 
+    # カテゴリ・コンディションの選択肢
     cat_options = ["全カテゴリ"]
     if not df.empty and "カテゴリー" in df.columns:
         cats = [str(c).strip() for c in df["カテゴリー"].dropna().unique() if str(c).strip() != ""]
@@ -82,7 +86,7 @@ def render_tab1_inventory(df_raw_inventory):
 
     st.markdown(f"<div style='margin-bottom:6px;'><span style='font-size:0.9rem;'><b>該当データ:</b> <span style='color:#ff4b4b;'>{total_items}</span> 件 | <b>対象在庫合計:</b> {int(total_qty)} 個 | <b>合計仕入金額:</b> {int(total_cost):,} 円</span></div>", unsafe_allow_html=True)
 
-    # 4. メイン一覧表
+    # 4. メイン一覧表（550pxの縦幅を確保）
     if not df.empty:
         show_cols = [c for c in ["ID", "商品名", "JANコード", "数量", "詳細ステータス", "保管場所", "仕入価格", "コンディション", "カテゴリー", "仕入日"] if c in df.columns]
         st.dataframe(
