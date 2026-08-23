@@ -1,76 +1,145 @@
-# app.py
 import streamlit as st
 from utils.gas_api import load_sheet_data
 from components.tab1_inventory import render_tab1_inventory
-from components.tab2_master import render_tab2_master
 from components.tab3_listing import render_tab3_listing
-from components.tab4_sourcing import render_tab4_sourcing
+from components import tab2_master, tab4_sourcing, tab5_doc_generator
+from components.listing import sub_sold_pending, sub_sold_shipped, sub_sales_mgmt
 
-st.set_page_config(
-    page_title="AKATSUKI 統合ECコマンドセンター",
-    page_icon="📦",
-    layout="wide"
-)
+st.set_page_config(page_title="AKATSUKI 統合ECコマンドセンター", layout="wide")
 
-# 1行目メニューの文字拡大 ＆ 上部余白調整CSS
+# --- UI/UX最適化＆大型ボタン専用CSS ---
 st.markdown("""
-    <head><meta name="google" content="notranslate"></head>
-    <style>
-        html, body, [data-testid="stAppViewContainer"] { translate: no !important; }
-        .block-container { padding-top: 3.5rem !important; padding-bottom: 0rem !important; }
-        
-        /* 1行目メニュー（タブ）：フォントサイズ1.8remへ巨大化 */
-        button[data-baseweb="tab"] p {
-            font-size: 1.8rem !important;
-            font-weight: 900 !important;
-            line-height: 1.2 !important;
-        }
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 20px !important;
-            border-bottom: 3px solid #555 !important;
-        }
-        .stTabs [data-baseweb="tab"] {
-            padding: 8px 16px !important;
-        }
-    </style>
+<style>
+    /* メインエリア上部余白の削除（文字切り防止） */
+    .block-container {
+        padding-top: 1.2rem !important;
+        padding-bottom: 0rem !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+    
+    /* 1行目タイトルの文字切れ防止 */
+    .header-title {
+        font-size: 1.15rem;
+        font-weight: bold;
+        line-height: 1.4;
+        margin: 0;
+        padding: 0;
+    }
+
+    /* サイドバー背景とブランドヘッダー */
+    section[data-testid="stSidebar"] {
+        background-color: #1a1c23 !important;
+    }
+    
+    .sidebar-brand {
+        font-size: 1.3rem !important;
+        font-weight: 800 !important;
+        color: #ffffff !important;
+        letter-spacing: 1px;
+        margin-bottom: 1.2rem;
+        padding-left: 0.2rem;
+        border-bottom: 2px solid #3b82f6;
+        padding-bottom: 0.5rem;
+    }
+
+    /* サイドバー内の全ボタンを巨大カードデザインに強制上書き */
+    section[data-testid="stSidebar"] div.stButton > button {
+        width: 100% !important;
+        height: 3.5rem !important;
+        background: #252836 !important;
+        border: 1px solid #363b4e !important;
+        border-radius: 8px !important;
+        color: #c5c9d6 !important;
+        font-size: 1.15rem !important;
+        font-weight: 700 !important;
+        text-align: left !important;
+        padding-left: 1rem !important;
+        margin-bottom: 0.3rem !important;
+        transition: all 0.2s ease-in-out !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+    }
+
+    /* ホバー時の発光・浮き上がりエフェクト */
+    section[data-testid="stSidebar"] div.stButton > button:hover {
+        background: #2d3245 !important;
+        border-color: #60a5fa !important;
+        color: #ffffff !important;
+        transform: translateY(-2px) !important;
+    }
+
+    /* 選択中のアクティブボタンデザイン（青グラデーション・強発光） */
+    section[data-testid="stSidebar"] div.stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+        border-color: #60a5fa !important;
+        color: #ffffff !important;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4) !important;
+    }
+</style>
 """, unsafe_allow_html=True)
 
-try:
-    # データ読み込み
+# セッション状態の初期化
+if "current_tab" not in st.session_state:
+    st.session_state["current_tab"] = "📦 在庫管理"
+
+# サイドバーヘッダー
+st.sidebar.markdown('<div class="sidebar-brand">⚡ AKATSUKI 統合EC</div>', unsafe_allow_html=True)
+
+# ナビゲーションメニュー定義（指定順：在庫管理と出品状況の間に「出品Docs作成」を追加）
+NAV_ITEMS = [
+    ("🔍 リサーチ・仕入れ", "tab_sourcing"),
+    ("📦 在庫管理", "tab_inventory"),
+    ("📄 出品Docs作成", "tab_doc_gen"),
+    ("🚀 出品状況", "tab_listing"),
+    ("📦 SOLD 発送前", "tab_sold_pending"),
+    ("✅ SOLD 発送完了", "tab_sold_shipped"),
+    ("📊 売上管理", "tab_sales_mgmt"),
+    ("💰 資金管理", "tab_master")
+]
+
+# 巨大カードボタンの動的生成
+for label, key_id in NAV_ITEMS:
+    is_selected = (st.session_state["current_tab"] == label)
+    btn_type = "primary" if is_selected else "secondary"
+    
+    if st.sidebar.button(label, key=f"nav_btn_{key_id}", type=btn_type, use_container_width=True):
+        st.session_state["current_tab"] = label
+        st.rerun()
+
+selected_tab = st.session_state["current_tab"]
+
+# 各画面のルーティング切替
+if selected_tab == "🔍 リサーチ・仕入れ":
+    if hasattr(tab4_sourcing, "render"):
+        tab4_sourcing.render()
+
+elif selected_tab == "📦 在庫管理":
     df_raw_inventory = load_sheet_data("EC_Inventory")
-    df_listing = load_sheet_data("T_Listing")
-    df_purchase = load_sheet_data("T_Purchase")
-    df_item = load_sheet_data("M_Item")
-    df_sourcing = load_sheet_data("T_Sourcing")
+    render_tab1_inventory(df_raw_inventory)
 
-    # 1行目：指定の5大メニュー
-    tab_sourcing, tab_stock, tab_listing, tab_shipping, tab_finance = st.tabs([
-        "🎯 リサーチ・仕入れ",
-        "📦 在庫",
-        "🚀 出品状況",
-        "🚚 出荷状況",
-        "💰 資金管理"
-    ])
+elif selected_tab == "📄 出品Docs作成":
+    df_raw_inventory = load_sheet_data("EC_Inventory")
+    tab5_doc_generator.render(df_raw_inventory)
 
-    # 1. リサーチ・仕入れ
-    with tab_sourcing:
-        render_tab4_sourcing(df_sourcing, df_purchase)
+elif selected_tab == "🚀 出品状況":
+    df_raw_listing = load_sheet_data("T_Listing")
+    render_tab3_listing(df_raw_listing)
 
-    # 2. 在庫（コンポーネントを正しく呼び出し）
-    with tab_stock:
-        render_tab1_inventory(df_raw_inventory)
+elif selected_tab == "📦 SOLD 発送前":
+    df_raw_listing = load_sheet_data("T_Listing")
+    st.markdown('<p class="header-title">📦 SOLD 発送前コントロール</p>', unsafe_allow_html=True)
+    sub_sold_pending.render(df_raw_listing)
 
-    # 3. 出品状況
-    with tab_listing:
-        render_tab3_listing(df_listing)
+elif selected_tab == "✅ SOLD 発送完了":
+    df_raw_listing = load_sheet_data("T_Listing")
+    st.markdown('<p class="header-title">✅ SOLD 発送完了履歴</p>', unsafe_allow_html=True)
+    sub_sold_shipped.render(df_raw_listing)
 
-    # 4. 出荷状況
-    with tab_shipping:
-        st.info("🚚 【出荷状況】モジュール準備中（発送ステータス管理・梱包リストを接続予定）")
+elif selected_tab == "📊 売上管理":
+    df_raw_listing = load_sheet_data("T_Listing")
+    st.markdown('<p class="header-title">📊 統合売上管理サマリー</p>', unsafe_allow_html=True)
+    sub_sales_mgmt.render(df_raw_listing)
 
-    # 5. 資金管理
-    with tab_finance:
-        render_tab2_master(df_item, df_raw_inventory)
-
-except Exception as e:
-    st.error(f"システムエラーが発生しました: {e}")
+elif selected_tab == "💰 資金管理":
+    if hasattr(tab2_master, "render"):
+        tab2_master.render()
