@@ -22,54 +22,67 @@ def parse_csv_by_source(uploaded_file, source_type):
         uploaded_file.seek(0)
         content = uploaded_file.read().decode("utf-8", errors="ignore")
 
-    lines = content.splitlines()
+    lines = [line for line in content.splitlines() if line.strip()]
 
-    # イオンカード：明細の開始行を探してそれより上を破棄
+    # デバッグ表示：読み込んだCSVの最初の10行を表示
+    st.info("🔍 CSVの生の先頭10行:")
+    st.code("\n".join(lines[:10]))
+
+    records = []
+
     if source_type == "card_aeon":
+        # 「ご利用日」または「利用日」またはカンマを含む明細行を自動探索
         start_idx = 0
         for i, line in enumerate(lines):
-            if "ご利用日" in line or "利用日" in line:
+            if any(k in line for k in ["ご利用日", "利用日", "ご利用先", "利用店名"]):
                 start_idx = i
                 break
         
         clean_csv_text = "\n".join(lines[start_idx:])
         df_clean = pd.read_csv(StringIO(clean_csv_text))
         
-        records = []
+        st.write("🔍 認識されたヘッダー列名:", list(df_clean.columns))
+
         for _, row in df_clean.iterrows():
-            date_val = str(row.get("ご利用日", row.get("利用日", "")))
-            name_val = str(row.get("ご利用先", row.get("利用店名・商品名", "")))
-            amount_val = clean_amount(row.get("ご利用金額(円)", row.get("利用金額", 0)))
+            # 柔軟に列を探す
+            date_val, name_val, amount_val = "", "", 0
+            for col in df_clean.columns:
+                c_str = str(col)
+                if any(k in c_str for k in ["日", "年月日"]):
+                    date_val = str(row[col])
+                elif any(k in c_str for k in ["先", "店名", "内容", "摘要"]):
+                    name_val = str(row[col])
+                elif any(k in c_str for k in ["金額", "円"]):
+                    amount_val = clean_amount(row[col])
             
-            if date_val and name_val and amount_val > 0 and date_val != "nan":
+            if date_val and date_val != "nan":
                 records.append({
                     "date": date_val,
-                    "original_name": name_val,
+                    "original_name": name_val if name_val != "nan" else "利用明細",
                     "amount": amount_val
                 })
         return pd.DataFrame(records), df_clean
 
-    # 汎用処理
     else:
         df_raw = pd.read_csv(StringIO(content))
-        records = []
+        st.write("🔍 認識されたヘッダー列名:", list(df_raw.columns))
+        
         for _, row in df_raw.iterrows():
             date_val, name_val, amount_val = "", "", 0
             for col in df_raw.columns:
-                col_str = str(col)
-                if any(k in col_str for k in ["日付", "利用日", "取引日"]):
+                c_str = str(col)
+                if any(k in c_str for k in ["日", "年月日"]):
                     date_val = str(row[col])
-                elif any(k in col_str for k in ["内容", "利用店名", "摘要", "ご利用先"]):
+                elif any(k in c_str for k in ["内容", "利用店", "摘要", "ご利用先", "品名"]):
                     name_val = str(row[col])
-                elif any(k in col_str for k in ["金額", "利用金額", "支払金額"]):
+                elif any(k in c_str for k in ["金額", "支払", "売上"]):
                     amount_val = clean_amount(row[col])
             
-            if name_val or amount_val > 0:
-                records.append({
-                    "date": date_val if date_val else datetime.now().strftime("%Y-%m-%d"),
-                    "original_name": name_val if name_val else "名称未設定",
-                    "amount": amount_val
-                })
+            records.append({
+                "date": date_val if date_val else datetime.now().strftime("%Y-%m-%d"),
+                "original_name": name_val if name_val else "名称未設定",
+                "amount": amount_val
+            })
         return pd.DataFrame(records), df_raw
 
 def render_tab9_csv_importer():
@@ -94,12 +107,12 @@ def render_tab9_csv_importer():
         try:
             df_parsed, df_raw = parse_csv_by_source(uploaded_file, source_type)
 
-            st.success(f"解析成功: {len(df_parsed)} 件の有効な取引データを抽出しました！")
+            st.success(f"解析成功: {len(df_parsed)} 件の取引データを抽出しました！")
             st.subheader("👀 クレンジング後プレビュー（先頭5件）")
             st.dataframe(df_parsed.head(), use_container_width=True)
 
-            if st.button("🚀 データを確定してスプレッドシートへ取り込む", type="primary"):
-                with st.spinner("スプレッドシートへ登録中...（最大1分程度かかる場合があります）"):
+            if len(df_parsed) > 0 and st.button("🚀 データを確定してスプレッドシートへ取り込む", type="primary"):
+                with st.spinner("スプレッドシートへ登録中..."):
                     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     raw_id = f"RAW_{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
