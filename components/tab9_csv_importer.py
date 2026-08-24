@@ -6,6 +6,7 @@ from datetime import datetime
 from utils.gas_api import append_sheet_data
 
 def clean_amount(val):
+    """金額文字列を数値に変換"""
     if pd.isna(val) or val is None:
         return 0
     val_str = str(val).replace("￥", "").replace("¥", "").replace(",", "").strip()
@@ -13,6 +14,17 @@ def clean_amount(val):
         return int(float(val_str))
     except ValueError:
         return 0
+
+def format_date_str(val):
+    """YYMMDD形式（例: 260512）などを YYYY-MM-DD（2026-05-12）へ統一変換"""
+    val_str = str(val).strip().split(".")[0]
+    # 6桁数値 (YYMMDD) の場合
+    if len(val_str) == 6 and val_str.isdigit():
+        return f"20{val_str[:2]}-{val_str[2:4]}-{val_str[4:6]}"
+    # 8桁数値 (YYYYMMDD) の場合
+    elif len(val_str) == 8 and val_str.isdigit():
+        return f"{val_str[:4]}-{val_str[4:6]}-{val_str[6:8]}"
+    return val_str
 
 def parse_csv_by_source(uploaded_file, source_type):
     try:
@@ -24,14 +36,14 @@ def parse_csv_by_source(uploaded_file, source_type):
 
     lines = [line for line in content.splitlines() if line.strip()]
 
-    # デバッグ表示：読み込んだCSVの最初の10行を表示
-    st.info("🔍 CSVの生の先頭10行:")
-    st.code("\n".join(lines[:10]))
+    # UI上に検証用データを折りたたみで表示
+    with st.expander("🔍 CSV解析データの詳細・検証情報（クリックで開閉）", expanded=True):
+        st.write(" **CSVの生の先頭10行:**")
+        st.code("\n".join(lines[:10]))
 
     records = []
 
     if source_type == "card_aeon":
-        # 「ご利用日」または「利用日」またはカンマを含む明細行を自動探索
         start_idx = 0
         for i, line in enumerate(lines):
             if any(k in line for k in ["ご利用日", "利用日", "ご利用先", "利用店名"]):
@@ -40,39 +52,36 @@ def parse_csv_by_source(uploaded_file, source_type):
         
         clean_csv_text = "\n".join(lines[start_idx:])
         df_clean = pd.read_csv(StringIO(clean_csv_text))
-        
-        st.write("🔍 認識されたヘッダー列名:", list(df_clean.columns))
+
+        with st.expander("🔍 CSV解析データの詳細・検証情報（クリックで開閉）", expanded=True):
+            st.write(" **認識されたヘッダー列名:**", list(df_clean.columns))
 
         for _, row in df_clean.iterrows():
-            # 柔軟に列を探す
-            date_val, name_val, amount_val = "", "", 0
-            for col in df_clean.columns:
-                c_str = str(col)
-                if any(k in c_str for k in ["日", "年月日"]):
-                    date_val = str(row[col])
-                elif any(k in c_str for k in ["先", "店名", "内容", "摘要"]):
-                    name_val = str(row[col])
-                elif any(k in c_str for k in ["金額", "円"]):
-                    amount_val = clean_amount(row[col])
+            date_raw = str(row.get("ご利用日", row.get("利用日", "")))
+            name_val = str(row.get("ご利用先", row.get("利用店名・商品名", "")))
+            amount_val = clean_amount(row.get("ご利用金額(円)", row.get("利用金額", 0)))
             
-            if date_val and date_val != "nan":
+            date_clean = format_date_str(date_raw)
+
+            if date_raw and date_raw != "nan" and name_val != "nan":
                 records.append({
-                    "date": date_val,
-                    "original_name": name_val if name_val != "nan" else "利用明細",
+                    "date": date_clean,
+                    "original_name": name_val,
                     "amount": amount_val
                 })
         return pd.DataFrame(records), df_clean
 
     else:
         df_raw = pd.read_csv(StringIO(content))
-        st.write("🔍 認識されたヘッダー列名:", list(df_raw.columns))
-        
+        with st.expander("🔍 CSV解析データの詳細・検証情報（クリックで開閉）", expanded=True):
+            st.write(" **認識されたヘッダー列名:**", list(df_raw.columns))
+
         for _, row in df_raw.iterrows():
             date_val, name_val, amount_val = "", "", 0
             for col in df_raw.columns:
                 c_str = str(col)
                 if any(k in c_str for k in ["日", "年月日"]):
-                    date_val = str(row[col])
+                    date_val = format_date_str(row[col])
                 elif any(k in c_str for k in ["内容", "利用店", "摘要", "ご利用先", "品名"]):
                     name_val = str(row[col])
                 elif any(k in c_str for k in ["金額", "支払", "売上"]):
@@ -107,7 +116,7 @@ def render_tab9_csv_importer():
         try:
             df_parsed, df_raw = parse_csv_by_source(uploaded_file, source_type)
 
-            st.success(f"解析成功: {len(df_parsed)} 件の取引データを抽出しました！")
+            st.success(f"🎉 解析成功: {len(df_parsed)} 件の取引データを抽出しました！")
             st.subheader("👀 クレンジング後プレビュー（先頭5件）")
             st.dataframe(df_parsed.head(), use_container_width=True)
 
