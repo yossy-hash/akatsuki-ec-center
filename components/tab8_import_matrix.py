@@ -3,7 +3,8 @@ import pandas as pd
 from datetime import datetime
 from utils.gas_api import load_sheet_data, append_sheet_data, call_gas_action
 
-SHEET_NAME = "T_ImportStatus"
+SHEET_STATUS = "T_ImportStatus"
+SHEET_TX = "T_Transactions"
 
 def render_tab8_import_matrix():
     st.title("📋 データ取り込み進捗（星取り表）")
@@ -22,7 +23,10 @@ def render_tab8_import_matrix():
 
     st.markdown("---")
 
-    df = load_sheet_data(SHEET_NAME)
+    # 1. T_Transactions（実際の取引データ）と T_ImportStatus（手動ステータス）の両方を読み込む
+    df_tx = load_sheet_data(SHEET_TX)
+    df_status = load_sheet_data(SHEET_STATUS)
+
     all_months = [f"2026-{m:02d}" for m in range(1, 13)]
     
     targets = {
@@ -39,11 +43,23 @@ def render_tab8_import_matrix():
         "receipt_status": "🧾 固定費・領収書"
     }
 
-    # 各月のステータス初期化
     status_records = {m: {key: "❌ 未登録" for key in targets.keys()} for m in all_months}
 
-    if not df.empty and "month" in df.columns:
-        for _, row in df.iterrows():
+    # A) T_Transactions の実データから自動検知（2026-MM形式の日付と source を判定）
+    if not df_tx.empty and "date" in df_tx.columns and "source" in df_tx.columns:
+        for _, row in df_tx.iterrows():
+            d_str = str(row.get("date", "")).strip()
+            src_str = str(row.get("source", "")).strip()
+            
+            # 日付から YYYY-MM を抽出
+            if len(d_str) >= 7 and d_str[:7] in status_records:
+                month_key = d_str[:7]
+                if src_str in targets:
+                    status_records[month_key][src_str] = "✅ OK"
+
+    # B) T_ImportStatus の手動フラグも重ね合わせて反映
+    if not df_status.empty and "month" in df_status.columns:
+        for _, row in df_status.iterrows():
             m = str(row.get("month", "")).strip()
             if m in status_records:
                 for key in targets.keys():
@@ -51,6 +67,7 @@ def render_tab8_import_matrix():
                     if val in ["OK", "✅ OK", "TRUE"]:
                         status_records[m][key] = "✅ OK"
 
+    # マトリクス表示用データの作成
     display_data = []
     for m in all_months:
         row_disp = {"対象年月": m}
@@ -90,7 +107,7 @@ def render_tab8_import_matrix():
         }
         
         with st.spinner("スプレッドシート更新中..."):
-            if append_sheet_data(SHEET_NAME, [row_data]):
+            if append_sheet_data(SHEET_STATUS, [row_data]):
                 st.success(f"[{selected_month}] {targets[source_key]} を『✅ OK』に更新しました！")
                 st.rerun()
             else:
