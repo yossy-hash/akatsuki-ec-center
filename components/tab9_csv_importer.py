@@ -3,7 +3,9 @@ import pandas as pd
 import json
 from io import StringIO
 from datetime import datetime
-from utils.gas_api import append_sheet_data
+from utils.gas_api import load_sheet_data, append_sheet_data
+
+SHEET_RULES = "M_Rules"
 
 def clean_amount(val):
     if pd.isna(val) or val is None:
@@ -21,6 +23,24 @@ def format_date_str(val):
     elif len(val_str) == 8 and val_str.isdigit():
         return f"{val_str[:4]}-{val_str[4:6]}-{val_str[6:8]}"
     return val_str
+
+def apply_cleansing_rules(original_name, rules_df):
+    """M_Rules のキーワードと照合して clean_name, category, ratio を返す"""
+    if rules_df.empty or "keyword" not in rules_df.columns:
+        return original_name, "未分類", 100
+
+    for _, rule in rules_df.iterrows():
+        kw = str(rule.get("keyword", "")).strip()
+        if kw and kw in original_name:
+            c_name = str(rule.get("clean_name", original_name)).strip()
+            cat = str(rule.get("category", "未分類")).strip()
+            try:
+                rat = int(rule.get("ratio", 100))
+            except ValueError:
+                rat = 100
+            return c_name if c_name else original_name, cat, rat
+
+    return original_name, "未分類", 100
 
 def parse_csv_by_source(uploaded_file, source_type):
     try:
@@ -48,14 +68,10 @@ def parse_csv_by_source(uploaded_file, source_type):
         clean_csv_text = "\n".join(lines[start_idx:])
         df_clean = pd.read_csv(StringIO(clean_csv_text))
 
-        with st.expander("🔍 CSV解析データの詳細・検証情報（クリックで開閉）"):
-            st.write(" **認識されたヘッダー列名:**", list(df_clean.columns))
-
         for _, row in df_clean.iterrows():
             date_raw = str(row.get("ご利用日", row.get("利用日", "")))
             name_val = str(row.get("ご利用先", row.get("利用店名・商品名", "")))
             amount_val = clean_amount(row.get("ご利用金額(円)", row.get("ご利用金額", row.get("利用金額", 0))))
-            
             date_clean = format_date_str(date_raw)
 
             if (date_raw and date_raw != "nan" and name_val and name_val != "nan" 
@@ -69,9 +85,6 @@ def parse_csv_by_source(uploaded_file, source_type):
 
     else:
         df_raw = pd.read_csv(StringIO(content))
-        with st.expander("🔍 CSV解析データの詳細・検証情報（クリックで開閉）"):
-            st.write(" **認識されたヘッダー列名:**", list(df_raw.columns))
-
         for _, row in df_raw.iterrows():
             date_val, name_val, amount_val = "", "", 0
             for col in df_raw.columns:
@@ -94,6 +107,9 @@ def parse_csv_by_source(uploaded_file, source_type):
 def render_tab9_csv_importer():
     st.title("📥 CSV一括取り込み・データ変換")
 
+    # ルール一覧のロード
+    df_rules = load_sheet_data(SHEET_RULES)
+
     col1, col2 = st.columns([1, 2])
     with col1:
         source_type = st.selectbox(
@@ -114,11 +130,9 @@ def render_tab9_csv_importer():
             df_parsed, df_raw = parse_csv_by_source(uploaded_file, source_type)
 
             st.success(f"🎉 解析成功: {len(df_parsed)} 件の取引データを抽出しました！")
-            st.subheader("👀 クレンジング後プレビュー（先頭5件）")
-            st.dataframe(df_parsed.head(), use_container_width=True)
 
             if len(df_parsed) > 0 and st.button("🚀 データを確定してスプレッドシートへ取り込む", type="primary"):
-                with st.spinner("スプレッドシートへ登録中..."):
+                with st.spinner("自動名寄せルールを適用して登録中..."):
                     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     raw_id = f"RAW_{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
@@ -133,39 +147,36 @@ def render_tab9_csv_importer():
                     tx_records = []
                     for idx, row in df_parsed.iterrows():
                         d_val = str(row.get("date", ""))
-                        n_val = str(row.get("original_name", ""))
+                        orig_name = str(row.get("original_name", ""))
                         a_val = int(row.get("amount", 0))
+
+                        # 🆕 自動名寄せ＆科目ルールの適用
+                        clean_name, category, ratio = apply_cleansing_rules(orig_name, df_rules)
 
                         tx_records.append({
                             "transaction_id": f"TX_{raw_id}_{idx+1:04d}",
                             "date": d_val,
                             "source": source_type,
-                            "original_name": n_val,
-                            "clean_name": n_val,
-                            "category": "未分類",
+                            "original_name": orig_name,
+                            "clean_name": clean_name,
+                            "category": category,
                             "amount": a_val,
                             "is_transfer": "FALSE",
-                            "ratio": 100,
+                            "ratio": ratio,
                             "raw_id_ref": raw_id,
                             "receipt_url": "",
                             "notes": f"自動取込: {target_month}"
                         })
 
-                    # 1. 取引データ書き込み
                     append_sheet_data("T_RawData", [raw_record])
                     res_tx = append_sheet_data("T_Transactions", tx_records)
 
-                    # 2. 星取り表 (T_ImportStatus) を自動更新！
-                    status_record = {
-                        "month": target_month,
-                        "last_updated": now_str,
-                        source_type: "OK"
-                    }
+                    status_record = {"month": target_month, "last_updated": now_str, source_type: "OK"}
                     append_sheet_data("T_ImportStatus", [status_record])
 
                     if res_tx:
                         st.balloons()
-                        st.success(f"🎉 登録完了！ [{target_month}] に {len(tx_records)} 件の取引データを登録し、星取り表を自動更新しました！")
+                        st.success(f"🎉 登録完了！ 名寄せ・科目ルールを適用して {len(tx_records)} 件を登録しました！")
                     else:
                         st.error("書き込みに失敗しました。")
 
