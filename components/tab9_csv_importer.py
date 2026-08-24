@@ -58,7 +58,6 @@ def parse_csv_by_source(uploaded_file, source_type):
             
             date_clean = format_date_str(date_raw)
 
-            # 有効な明細行のみ抽出（「ご利用日」「支払回数」などのフッター・ヘッダーゴミ行を除外）
             if (date_raw and date_raw != "nan" and name_val and name_val != "nan" 
                 and "ご利用日" not in date_raw and "支払回数" not in name_val and amount_val > 0):
                 records.append({
@@ -123,7 +122,6 @@ def render_tab9_csv_importer():
                     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     raw_id = f"RAW_{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
-                    # T_RawData レコード（GAS配列渡し用の並び順保証）
                     raw_record = {
                         "raw_id": raw_id,
                         "import_date": now_str,
@@ -132,7 +130,6 @@ def render_tab9_csv_importer():
                         "raw_text_json": json.dumps(df_raw.head(30).to_dict(orient="records"), ensure_ascii=False)
                     }
 
-                    # T_Transactions レコード
                     tx_records = []
                     for idx, row in df_parsed.iterrows():
                         d_val = str(row.get("date", ""))
@@ -154,16 +151,21 @@ def render_tab9_csv_importer():
                             "notes": f"自動取込: {target_month}"
                         })
 
-                    # スプレッドシートへ追加
+                    # 1. 取引データ書き込み
                     append_sheet_data("T_RawData", [raw_record])
                     res_tx = append_sheet_data("T_Transactions", tx_records)
 
-                    status_record = {"month": target_month, "last_updated": now_str, source_type: "OK"}
+                    # 2. 星取り表 (T_ImportStatus) を自動更新！
+                    status_record = {
+                        "month": target_month,
+                        "last_updated": now_str,
+                        source_type: "OK"
+                    }
                     append_sheet_data("T_ImportStatus", [status_record])
 
                     if res_tx:
                         st.balloons()
-                        st.success(f"🎉 登録完了！ [{target_month}] に {len(tx_records)} 件の取引データを登録しました！")
+                        st.success(f"🎉 登録完了！ [{target_month}] に {len(tx_records)} 件の取引データを登録し、星取り表を自動更新しました！")
                     else:
                         st.error("書き込みに失敗しました。")
 
