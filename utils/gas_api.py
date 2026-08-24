@@ -22,37 +22,33 @@ def call_gas_action(action_name: str, payload: dict = None):
         return None
 
 def load_sheet_data(sheet_name: str) -> pd.DataFrame:
-    """シートデータの読み込み（既存のGAS doGet互換）"""
+    """GASからのデータ取得（純粋な配列JSON対応版）"""
     gas_url = st.secrets.get("GAS_API_URL")
     if not gas_url:
         return pd.DataFrame()
     
     try:
-        # GASのdoGetへパラメータを送信
+        # GASへリクエスト
         response = requests.get(gas_url, params={"sheet": sheet_name}, timeout=15)
         
-        # レスポンス文字列のパース（安全処理）
-        res_text = response.text.strip()
-        if not res_text:
+        if response.status_code != 200 or not response.text.strip():
             return pd.DataFrame()
             
-        data = json.loads(res_text)
+        # JSONをパース
+        data = response.json()
         
-        # 配列で返ってきた場合（通常パターン）
+        # 1. 画像で確認できた「配列型JSON」の処理（メイン経路）
         if isinstance(data, list):
             return pd.DataFrame(data)
-        # オブジェクトで返ってきた場合
+            
+        # 2. 万が一辞書型で返ってきた場合の安全処理
         elif isinstance(data, dict):
             if data.get("status") == "success":
-                result = data.get("result", [])
-                if isinstance(result, list):
-                    return pd.DataFrame(result)
-            elif data.get("status") == "error":
-                # エラーメッセージ表示（データなしの場合は無視）
-                if "Sheet not found" not in str(data.get("result")):
-                    st.warning(f"シート [{sheet_name}] 読み込み注意: {data.get('result')}")
-                return pd.DataFrame()
-                
+                res_list = data.get("result", [])
+                if isinstance(res_list, list):
+                    return pd.DataFrame(res_list)
+            return pd.DataFrame()
+            
         return pd.DataFrame()
         
     except Exception as e:
@@ -60,6 +56,6 @@ def load_sheet_data(sheet_name: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 def append_sheet_data(sheet_name: str, rows: list) -> bool:
-    """シートへ行追記（既存のGAS doPost互換）"""
+    """シートへ行追記"""
     res = call_gas_action("append_data", {"sheet": sheet_name, "data": rows})
     return bool(res and res.get("status") == "success")
