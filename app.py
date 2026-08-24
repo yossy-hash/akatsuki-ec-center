@@ -4,6 +4,8 @@ from components.tab1_inventory import render_tab1_inventory
 from components.tab3_listing import render_tab3_listing
 from components import tab2_master, tab4_sourcing, tab5_doc_generator
 from components.listing import sub_sold_pending, sub_sold_shipped, sub_sales_mgmt
+# 🆕 星取り表モジュールのインポート
+from components.tab8_import_matrix import render_tab8_import_matrix
 
 st.set_page_config(page_title="AKATSUKI 統合ECコマンドセンター", layout="wide")
 
@@ -85,7 +87,7 @@ if "current_tab" not in st.session_state:
 # サイドバーヘッダー
 st.sidebar.markdown('<div class="sidebar-brand">⚡ AKATSUKI 統合EC</div>', unsafe_allow_html=True)
 
-# ナビゲーションメニュー定義（指定順：在庫管理と出品状況の間に「出品Docs作成」を追加）
+# ナビゲーションメニュー定義（最下部に星取り表を追加）
 NAV_ITEMS = [
     ("🔍 リサーチ・仕入れ", "tab_sourcing"),
     ("📦 在庫管理", "tab_inventory"),
@@ -94,7 +96,8 @@ NAV_ITEMS = [
     ("📦 SOLD 発送前", "tab_sold_pending"),
     ("✅ SOLD 発送完了", "tab_sold_shipped"),
     ("📊 売上管理", "tab_sales_mgmt"),
-    ("💰 資金管理", "tab_master")
+    ("💰 資金管理", "tab_master"),
+    ("📋 取り込み進捗（星取り表）", "tab_import_matrix")  # 👈 🆕 追加！
 ]
 
 # 巨大カードボタンの動的生成
@@ -143,3 +146,7 @@ elif selected_tab == "📊 売上管理":
 elif selected_tab == "💰 資金管理":
     if hasattr(tab2_master, "render"):
         tab2_master.render()
+
+# 🆕 【追加画面】星取り表画面の描画処理
+elif selected_tab == "📋 取り込み進捗（星取り表）":
+    render_tab8_import_matrix()
