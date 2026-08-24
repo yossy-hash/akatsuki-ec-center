@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from utils.gas_api import load_sheet_data, append_sheet_data, call_gas_action
+from utils.gas_api import load_sheet_data, call_gas_action
 
-SHEET_STATUS = "T_ImportStatus"
+SHEET_RAW = "T_RawData"
 SHEET_TX = "T_Transactions"
 
 def render_tab8_import_matrix():
@@ -23,9 +23,9 @@ def render_tab8_import_matrix():
 
     st.markdown("---")
 
-    # 1. T_Transactions（実際の取引データ）と T_ImportStatus（手動ステータス）の両方を読み込む
+    # RawデータとTransactionsデータを読み込み
+    df_raw = load_sheet_data(SHEET_RAW)
     df_tx = load_sheet_data(SHEET_TX)
-    df_status = load_sheet_data(SHEET_STATUS)
 
     all_months = [f"2026-{m:02d}" for m in range(1, 13)]
     
@@ -45,27 +45,23 @@ def render_tab8_import_matrix():
 
     status_records = {m: {key: "❌ 未登録" for key in targets.keys()} for m in all_months}
 
-    # A) T_Transactions の実データから自動検知（2026-MM形式の日付と source を判定）
-    if not df_tx.empty and "date" in df_tx.columns and "source" in df_tx.columns:
-        for _, row in df_tx.iterrows():
-            d_str = str(row.get("date", "")).strip()
-            src_str = str(row.get("source", "")).strip()
-            
-            # 日付から YYYY-MM を抽出
-            if len(d_str) >= 7 and d_str[:7] in status_records:
-                month_key = d_str[:7]
-                if src_str in targets:
-                    status_records[month_key][src_str] = "✅ OK"
+    # A) T_RawDataの「target_month」と「source_type」から正確に判定
+    if not df_raw.empty and "target_month" in df_raw.columns and "source_type" in df_raw.columns:
+        for _, row in df_raw.iterrows():
+            tm = str(row.get("target_month", "")).strip()
+            stype = str(row.get("source_type", "")).strip()
+            if tm in status_records and stype in targets:
+                status_records[tm][stype] = "✅ OK"
 
-    # B) T_ImportStatus の手動フラグも重ね合わせて反映
-    if not df_status.empty and "month" in df_status.columns:
-        for _, row in df_status.iterrows():
-            m = str(row.get("month", "")).strip()
-            if m in status_records:
-                for key in targets.keys():
-                    val = str(row.get(key, "")).strip().upper()
-                    if val in ["OK", "✅ OK", "TRUE"]:
-                        status_records[m][key] = "✅ OK"
+    # B) T_Transactionsの「notes（自動取込: YYYY-MM）」からも念のため正確判定
+    if not df_tx.empty and "notes" in df_tx.columns and "source" in df_tx.columns:
+        for _, row in df_tx.iterrows():
+            notes = str(row.get("notes", ""))
+            src = str(row.get("source", "")).strip()
+            if "自動取込: " in notes:
+                tm = notes.replace("自動取込: ", "").strip()
+                if tm in status_records and src in targets:
+                    status_records[tm][src] = "✅ OK"
 
     # マトリクス表示用データの作成
     display_data = []
@@ -83,32 +79,3 @@ def render_tab8_import_matrix():
 
     st.subheader("📊 取り込み進捗マトリクス")
     st.dataframe(pd.DataFrame(display_data), use_container_width=True, hide_index=True)
-
-    st.markdown("---")
-
-    st.subheader("📥 ステータス手動更新")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        selected_month = st.selectbox("対象月", all_months, index=6)
-    with col2:
-        source_key = st.selectbox("データ種別", list(targets.keys()), format_func=lambda x: targets[x])
-    with col3:
-        st.write("")
-        st.write("")
-        submit_btn = st.button("🚀 取り込みOKとして登録", type="primary")
-
-    if submit_btn:
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        row_data = {
-            "month": selected_month,
-            "last_updated": now_str,
-            source_key: "OK"
-        }
-        
-        with st.spinner("スプレッドシート更新中..."):
-            if append_sheet_data(SHEET_STATUS, [row_data]):
-                st.success(f"[{selected_month}] {targets[source_key]} を『✅ OK』に更新しました！")
-                st.rerun()
-            else:
-                st.error("更新に失敗しました。")
