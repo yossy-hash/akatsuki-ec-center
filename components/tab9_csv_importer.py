@@ -6,7 +6,6 @@ from datetime import datetime
 from utils.gas_api import append_sheet_data
 
 def clean_amount(val):
-    """金額文字列（¥1,234等）を整数の数値に変換"""
     if pd.isna(val) or val is None:
         return 0
     val_str = str(val).replace("￥", "").replace("¥", "").replace(",", "").strip()
@@ -16,7 +15,6 @@ def clean_amount(val):
         return 0
 
 def format_date_str(val):
-    """YYMMDD（例: 260512）を YYYY-MM-DD（例: 2026-05-12）へ整列"""
     val_str = str(val).strip().split(".")[0]
     if len(val_str) == 6 and val_str.isdigit():
         return f"20{val_str[:2]}-{val_str[2:4]}-{val_str[4:6]}"
@@ -25,7 +23,6 @@ def format_date_str(val):
     return val_str
 
 def parse_csv_by_source(uploaded_file, source_type):
-    """データ種別ごとに最適な明細抽出を実行"""
     try:
         uploaded_file.seek(0)
         content = uploaded_file.read().decode("cp932", errors="ignore")
@@ -41,7 +38,6 @@ def parse_csv_by_source(uploaded_file, source_type):
 
     records = []
 
-    # 💳 イオンカード専用パーサー
     if source_type == "card_aeon":
         start_idx = 0
         for i, line in enumerate(lines):
@@ -62,8 +58,9 @@ def parse_csv_by_source(uploaded_file, source_type):
             
             date_clean = format_date_str(date_raw)
 
-            # 有効な明細行のみを抽出
-            if date_raw and date_raw != "nan" and name_val and name_val != "nan":
+            # 有効な明細行のみ抽出（「ご利用日」「支払回数」などのフッター・ヘッダーゴミ行を除外）
+            if (date_raw and date_raw != "nan" and name_val and name_val != "nan" 
+                and "ご利用日" not in date_raw and "支払回数" not in name_val and amount_val > 0):
                 records.append({
                     "date": date_clean,
                     "original_name": name_val,
@@ -71,7 +68,6 @@ def parse_csv_by_source(uploaded_file, source_type):
                 })
         return pd.DataFrame(records), df_clean
 
-    # 🛍️ 汎用パーサー（その他のCSV）
     else:
         df_raw = pd.read_csv(StringIO(content))
         with st.expander("🔍 CSV解析データの詳細・検証情報（クリックで開閉）"):
@@ -88,7 +84,7 @@ def parse_csv_by_source(uploaded_file, source_type):
                 elif any(k in c_str for k in ["ご利用金額", "金額", "支払", "売上"]):
                     amount_val = clean_amount(row[col])
             
-            if name_val and name_val != "nan":
+            if name_val and name_val != "nan" and amount_val > 0:
                 records.append({
                     "date": date_val if date_val else datetime.now().strftime("%Y-%m-%d"),
                     "original_name": name_val,
@@ -127,7 +123,7 @@ def render_tab9_csv_importer():
                     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     raw_id = f"RAW_{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
-                    # 1. T_RawData レコード
+                    # T_RawData レコード（GAS配列渡し用の並び順保証）
                     raw_record = {
                         "raw_id": raw_id,
                         "import_date": now_str,
@@ -136,7 +132,7 @@ def render_tab9_csv_importer():
                         "raw_text_json": json.dumps(df_raw.head(30).to_dict(orient="records"), ensure_ascii=False)
                     }
 
-                    # 2. T_Transactions レコード（正しく値をマッピング）
+                    # T_Transactions レコード
                     tx_records = []
                     for idx, row in df_parsed.iterrows():
                         d_val = str(row.get("date", ""))
@@ -158,7 +154,7 @@ def render_tab9_csv_importer():
                             "notes": f"自動取込: {target_month}"
                         })
 
-                    # スプレッドシートへの書き込み処理
+                    # スプレッドシートへ追加
                     append_sheet_data("T_RawData", [raw_record])
                     res_tx = append_sheet_data("T_Transactions", tx_records)
 
