@@ -6,7 +6,7 @@ from datetime import datetime
 from utils.gas_api import append_sheet_data
 
 def clean_amount(val):
-    """金額文字列を数値に変換"""
+    """金額文字列（¥1,234等）を整数の数値に変換"""
     if pd.isna(val) or val is None:
         return 0
     val_str = str(val).replace("￥", "").replace("¥", "").replace(",", "").strip()
@@ -16,17 +16,16 @@ def clean_amount(val):
         return 0
 
 def format_date_str(val):
-    """YYMMDD形式（例: 260512）などを YYYY-MM-DD（2026-05-12）へ統一変換"""
+    """YYMMDD（例: 260512）を YYYY-MM-DD（例: 2026-05-12）へ整列"""
     val_str = str(val).strip().split(".")[0]
-    # 6桁数値 (YYMMDD) の場合
     if len(val_str) == 6 and val_str.isdigit():
         return f"20{val_str[:2]}-{val_str[2:4]}-{val_str[4:6]}"
-    # 8桁数値 (YYYYMMDD) の場合
     elif len(val_str) == 8 and val_str.isdigit():
         return f"{val_str[:4]}-{val_str[4:6]}-{val_str[6:8]}"
     return val_str
 
 def parse_csv_by_source(uploaded_file, source_type):
+    """データ種別ごとに最適な明細抽出を実行"""
     try:
         uploaded_file.seek(0)
         content = uploaded_file.read().decode("cp932", errors="ignore")
@@ -36,13 +35,13 @@ def parse_csv_by_source(uploaded_file, source_type):
 
     lines = [line for line in content.splitlines() if line.strip()]
 
-    # UI上に検証用データを折りたたみで表示
-    with st.expander("🔍 CSV解析データの詳細・検証情報（クリックで開閉）", expanded=True):
+    with st.expander("🔍 CSV解析データの詳細・検証情報（クリックで開閉）"):
         st.write(" **CSVの生の先頭10行:**")
         st.code("\n".join(lines[:10]))
 
     records = []
 
+    # 💳 イオンカード専用パーサー
     if source_type == "card_aeon":
         start_idx = 0
         for i, line in enumerate(lines):
@@ -53,17 +52,18 @@ def parse_csv_by_source(uploaded_file, source_type):
         clean_csv_text = "\n".join(lines[start_idx:])
         df_clean = pd.read_csv(StringIO(clean_csv_text))
 
-        with st.expander("🔍 CSV解析データの詳細・検証情報（クリックで開閉）", expanded=True):
+        with st.expander("🔍 CSV解析データの詳細・検証情報（クリックで開閉）"):
             st.write(" **認識されたヘッダー列名:**", list(df_clean.columns))
 
         for _, row in df_clean.iterrows():
             date_raw = str(row.get("ご利用日", row.get("利用日", "")))
             name_val = str(row.get("ご利用先", row.get("利用店名・商品名", "")))
-            amount_val = clean_amount(row.get("ご利用金額(円)", row.get("利用金額", 0)))
+            amount_val = clean_amount(row.get("ご利用金額(円)", row.get("ご利用金額", row.get("利用金額", 0))))
             
             date_clean = format_date_str(date_raw)
 
-            if date_raw and date_raw != "nan" and name_val != "nan":
+            # 有効な明細行のみを抽出
+            if date_raw and date_raw != "nan" and name_val and name_val != "nan":
                 records.append({
                     "date": date_clean,
                     "original_name": name_val,
@@ -71,27 +71,29 @@ def parse_csv_by_source(uploaded_file, source_type):
                 })
         return pd.DataFrame(records), df_clean
 
+    # 🛍️ 汎用パーサー（その他のCSV）
     else:
         df_raw = pd.read_csv(StringIO(content))
-        with st.expander("🔍 CSV解析データの詳細・検証情報（クリックで開閉）", expanded=True):
+        with st.expander("🔍 CSV解析データの詳細・検証情報（クリックで開閉）"):
             st.write(" **認識されたヘッダー列名:**", list(df_raw.columns))
 
         for _, row in df_raw.iterrows():
             date_val, name_val, amount_val = "", "", 0
             for col in df_raw.columns:
                 c_str = str(col)
-                if any(k in c_str for k in ["日", "年月日"]):
+                if any(k in c_str for k in ["ご利用日", "利用日", "日付", "取引日"]):
                     date_val = format_date_str(row[col])
-                elif any(k in c_str for k in ["内容", "利用店", "摘要", "ご利用先", "品名"]):
+                elif any(k in c_str for k in ["ご利用先", "利用店", "内容", "摘要"]):
                     name_val = str(row[col])
-                elif any(k in c_str for k in ["金額", "支払", "売上"]):
+                elif any(k in c_str for k in ["ご利用金額", "金額", "支払", "売上"]):
                     amount_val = clean_amount(row[col])
             
-            records.append({
-                "date": date_val if date_val else datetime.now().strftime("%Y-%m-%d"),
-                "original_name": name_val if name_val else "名称未設定",
-                "amount": amount_val
-            })
+            if name_val and name_val != "nan":
+                records.append({
+                    "date": date_val if date_val else datetime.now().strftime("%Y-%m-%d"),
+                    "original_name": name_val,
+                    "amount": amount_val
+                })
         return pd.DataFrame(records), df_raw
 
 def render_tab9_csv_importer():
@@ -108,7 +110,7 @@ def render_tab9_csv_importer():
                 "sales_mercari": "🛍️ メルカリ売上", "sales_yahoo": "🛍️ ヤフオク売上", "bank_status": "🏦 銀行明細"
             }.get(x, x)
         )
-        target_month = st.selectbox("対象年月", [f"2026-{m:02d}" for m in range(1, 13)], index=7)
+        target_month = st.selectbox("対象年月", [f"2026-{m:02d}" for m in range(1, 13)], index=6)
 
     uploaded_file = st.file_uploader("CSVファイルをドロップしてください", type=["csv"])
 
@@ -125,6 +127,7 @@ def render_tab9_csv_importer():
                     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     raw_id = f"RAW_{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
+                    # 1. T_RawData レコード
                     raw_record = {
                         "raw_id": raw_id,
                         "import_date": now_str,
@@ -133,16 +136,21 @@ def render_tab9_csv_importer():
                         "raw_text_json": json.dumps(df_raw.head(30).to_dict(orient="records"), ensure_ascii=False)
                     }
 
+                    # 2. T_Transactions レコード（正しく値をマッピング）
                     tx_records = []
                     for idx, row in df_parsed.iterrows():
+                        d_val = str(row.get("date", ""))
+                        n_val = str(row.get("original_name", ""))
+                        a_val = int(row.get("amount", 0))
+
                         tx_records.append({
                             "transaction_id": f"TX_{raw_id}_{idx+1:04d}",
-                            "date": str(row.get("date", "")),
+                            "date": d_val,
                             "source": source_type,
-                            "original_name": str(row.get("original_name", "")),
-                            "clean_name": str(row.get("original_name", "")),
+                            "original_name": n_val,
+                            "clean_name": n_val,
                             "category": "未分類",
-                            "amount": int(row.get("amount", 0)),
+                            "amount": a_val,
                             "is_transfer": "FALSE",
                             "ratio": 100,
                             "raw_id_ref": raw_id,
@@ -150,6 +158,7 @@ def render_tab9_csv_importer():
                             "notes": f"自動取込: {target_month}"
                         })
 
+                    # スプレッドシートへの書き込み処理
                     append_sheet_data("T_RawData", [raw_record])
                     res_tx = append_sheet_data("T_Transactions", tx_records)
 
