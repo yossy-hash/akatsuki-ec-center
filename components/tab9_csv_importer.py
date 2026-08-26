@@ -3,7 +3,7 @@ import pandas as pd
 import json
 from io import StringIO
 from datetime import datetime
-from utils.gas_api import append_sheet_data, load_sheet_data, call_gas_action
+from utils.gas_api import append_sheet_data, load_sheet_data
 
 SHEET_RULES = "M_Rules"
 
@@ -55,10 +55,6 @@ def parse_csv_by_source(uploaded_file, source_type):
         content = uploaded_file.read().decode("utf-8", errors="ignore")
 
     lines = [line for line in content.splitlines() if line.strip()]
-
-    with st.expander("🔍 CSV解析データの詳細・検証情報（クリックで開閉）"):
-        st.write(" **CSVの生の先頭10行:**")
-        st.code("\n".join(lines[:10]))
 
     records = []
 
@@ -151,7 +147,7 @@ def render_tab9_csv_importer():
                 "sales_mercari": "🛍️ メルカリ売上", "sales_yahoo": "🛍️ ヤフオク売上", "bank_status": "🏦 銀行明細"
             }.get(x, x)
         )
-        target_month = st.selectbox("対象年月", [f"2026-{m:02d}" for m in range(1, 13)], index=0)
+        target_month = st.selectbox("対象年月", [f"2026-{m:02d}" for m in range(1, 13)], index=4)
 
     uploaded_file = st.file_uploader("CSVファイルをドロップしてください", type=["csv"])
 
@@ -164,13 +160,7 @@ def render_tab9_csv_importer():
             st.dataframe(df_parsed.head(), use_container_width=True)
 
             if len(df_parsed) > 0 and st.button("🚀 データを確定してスプレッドシートへ取り込む", type="primary"):
-                with st.spinner("古い同月データを安全にクレンジング・上書き登録中..."):
-                    
-                    # 1. 🆕 既に同月・同種別のデータが存在する場合は安全に一括削除する
-                    call_gas_action("delete_existing_data", {
-                        "target_month": target_month,
-                        "source_type": source_type
-                    })
+                with st.spinner("スプレッドシートへデータを取り込み中..."):
 
                     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     raw_id = f"RAW_{datetime.now().strftime('%Y%m%d%H%M%S')}"
@@ -210,7 +200,6 @@ def render_tab9_csv_importer():
                             "notes": f"自動取込: {target_month}"
                         })
 
-                    # 2. 新しいデータを書き込み
                     append_sheet_data("T_RawData", [raw_record])
                     res_tx = append_sheet_data("T_Transactions", tx_records)
 
@@ -219,7 +208,7 @@ def render_tab9_csv_importer():
 
                     if res_tx:
                         st.balloons()
-                        st.success(f"🎉 上書き登録完了！ [{target_month}] のデータを最新にクリア＆登録しました！")
+                        st.success(f"🎉 登録完了！ [{target_month}] に {len(tx_records)} 件のデータを正常登録しました！")
                     else:
                         st.error("書き込みに失敗しました。")
 
