@@ -63,8 +63,21 @@ def render_tab12_summary_matrix():
     )
 
     st.subheader("📈 月別・項目別収支表")
+
+    # 🆕 エクセルのデータバー風 スタイル適用
+    styled_pivot = (
+        pivot_df.style
+        .format("￥{:,.0f}")
+        .bar(
+            subset=pivot_df.columns,
+            color="#2563eb",  # バーの色（スマートなブルー）
+            vmin=0,
+            align="left"
+        )
+    )
+
     st.dataframe(
-        pivot_df.style.format("￥{:,.0f}"),
+        styled_pivot,
         use_container_width=True
     )
 
@@ -77,11 +90,10 @@ def render_tab12_summary_matrix():
 
     st.markdown("---")
 
-    # 4. 🆕 銀行残高推移の自動抽出・表示
+    # 4. 銀行残高推移の自動抽出・表示
     st.subheader("🏦 月末・銀行残高推移")
 
     def extract_balance(notes_str):
-        # notes カラム内の 「残高: ￥XX,XXX」 から数値のみ抽出
         match = re.search(r"残高:\s*￥?([0-9,]+)", str(notes_str))
         if match:
             return int(match.group(1).replace(",", ""))
@@ -91,16 +103,21 @@ def render_tab12_summary_matrix():
     df_bank = df_valid[df_valid["extracted_balance"].notnull()].copy()
 
     if not df_bank.empty:
-        # 日付順に並び替えて各月の最新（月末時点）残高を取得
         df_bank = df_bank.sort_values("date_str")
         monthly_balance = df_bank.groupby("month")["extracted_balance"].last()
 
-        # テーブル表示と折れ線グラフ表示
         col_b1, col_b2 = st.columns([1, 2])
         with col_b1:
             st.write("**月末残高一覧**")
             df_bal_show = pd.DataFrame(monthly_balance).rename(columns={"extracted_balance": "月末残高"})
-            st.dataframe(df_bal_show.style.format("￥{:,.0f}"), use_container_width=True)
+            
+            # 残高一覧側にもデータバーを適用
+            styled_bal = (
+                df_bal_show.style
+                .format("￥{:,.0f}")
+                .bar(subset=["月末残高"], color="#10b981", vmin=0, align="left")
+            )
+            st.dataframe(styled_bal, use_container_width=True)
         
         with col_b2:
             st.write("**残高推移チャート**")
