@@ -1,4 +1,5 @@
 import streamlit as st
+import datetime
 import pandas as pd
 from utils.gas_api import load_sheet_data
 from components.tab1_inventory import render_tab1_inventory
@@ -76,6 +77,16 @@ if "current_tab" not in st.session_state:
     st.session_state["current_tab"] = "📦 在庫管理"
 
 st.sidebar.markdown('<div class="sidebar-brand">⚡ AKATSUKI 統合EC</div>', unsafe_allow_html=True)
+# ===== 追記：現在の日付を表示 =====
+today_str = datetime.datetime.now().strftime("%Y年%m月%d日")
+st.sidebar.markdown(
+    f'<div style="text-align: center; color: #94a3b8; font-size: 0.9rem; margin-bottom: 1.2rem; font-weight: 500;">📅 {today_str}</div>', 
+    unsafe_allow_html=True
+)
+# ==================================
+
+
+
 
 NAV_ITEMS = [
     ("🔍 リサーチ・仕入れ", "tab_sourcing"),
