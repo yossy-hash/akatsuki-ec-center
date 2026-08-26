@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import re
 from utils.gas_api import load_sheet_data
 
 SHEET_TX = "T_Transactions"
@@ -36,23 +37,22 @@ def render_tab12_summary_matrix():
         st.info("データがまだありません。CSV取り込み画面から取引データを登録してください。")
         return
 
-    # 1. 日付列の整形と年月 (YYYY-MM) の全自動抽出（2025年・2026年両対応）
+    # 日付列の整形と年月 (YYYY-MM) の抽出
     df_tx["date_str"] = df_tx["date"].astype(str).str.strip()
     df_tx["month"] = df_tx["date_str"].str.slice(0, 7)
     df_tx["amount"] = pd.to_numeric(df_tx["amount"], errors="coerce").fillna(0)
 
-    # 2. 有効な年月データのみにフィルタリング (例: 2025-02, 2026-01 など)
+    # 有効な年月データのみにフィルタリング
     df_valid = df_tx[df_tx["month"].str.match(r"^\d{4}-\d{2}$")].copy()
 
     if df_valid.empty:
         st.warning("有効な日付フォーマット（YYYY-MM-DD）の取引データが見つかりませんでした。")
-        st.dataframe(df_tx.head(), use_container_width=True)
         return
 
-    # 3. 取引の分類を付与
+    # 1. 収支カテゴリ分類
     df_valid[["group", "sub_group"]] = df_valid.apply(categorize_transaction, axis=1, result_type="expand")
 
-    # 4. ピボットテーブル集計 (縦軸: グループ/サブグループ, 横軸: 月)
+    # 2. ピボットテーブル集計
     pivot_df = pd.pivot_table(
         df_valid,
         index=["group", "sub_group"],
@@ -63,8 +63,6 @@ def render_tab12_summary_matrix():
     )
 
     st.subheader("📈 月別・項目別収支表")
-    
-    # 表示フォーマット適用
     st.dataframe(
         pivot_df.style.format("￥{:,.0f}"),
         use_container_width=True
@@ -72,7 +70,40 @@ def render_tab12_summary_matrix():
 
     st.markdown("---")
     
-    # 月別の合計サマリーグラフ表示
+    # 3. 月別収支推移グラフ
     st.subheader("📊 月別収支推移")
     summary_by_month = df_valid.groupby(["month", "group"])["amount"].sum().unstack(fill_value=0)
     st.bar_chart(summary_by_month)
+
+    st.markdown("---")
+
+    # 4. 🆕 銀行残高推移の自動抽出・表示
+    st.subheader("🏦 月末・銀行残高推移")
+
+    def extract_balance(notes_str):
+        # notes カラム内の 「残高: ￥XX,XXX」 から数値のみ抽出
+        match = re.search(r"残高:\s*￥?([0-9,]+)", str(notes_str))
+        if match:
+            return int(match.group(1).replace(",", ""))
+        return None
+
+    df_valid["extracted_balance"] = df_valid["notes"].apply(extract_balance)
+    df_bank = df_valid[df_valid["extracted_balance"].notnull()].copy()
+
+    if not df_bank.empty:
+        # 日付順に並び替えて各月の最新（月末時点）残高を取得
+        df_bank = df_bank.sort_values("date_str")
+        monthly_balance = df_bank.groupby("month")["extracted_balance"].last()
+
+        # テーブル表示と折れ線グラフ表示
+        col_b1, col_b2 = st.columns([1, 2])
+        with col_b1:
+            st.write("**月末残高一覧**")
+            df_bal_show = pd.DataFrame(monthly_balance).rename(columns={"extracted_balance": "月末残高"})
+            st.dataframe(df_bal_show.style.format("￥{:,.0f}"), use_container_width=True)
+        
+        with col_b2:
+            st.write("**残高推移チャート**")
+            st.line_chart(monthly_balance)
+    else:
+        st.info("💡 イオン銀行等の残高情報付きCSVを取り込むと、ここに月末残高の推移グラフが表示されます。")
