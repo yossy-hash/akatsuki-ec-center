@@ -58,7 +58,39 @@ def parse_csv_by_source(uploaded_file, source_type):
 
     records = []
 
-    if source_type == "mf_status":
+    # 🏦 銀行明細（イオン銀行等）専用パーサー
+    if source_type in ["bank_status", "bank_aeon"]:
+        df_raw = pd.read_csv(StringIO(content))
+        for _, row in df_raw.iterrows():
+            date_raw = str(row.get("日付", ""))
+            name_val = str(row.get("お取引内容", row.get("摘要", row.get("内容", ""))))
+            
+            # 引出し／預入れの金額判定
+            out_val = clean_amount(row.get("お引出し", row.get("引出金額", 0)))
+            in_val = clean_amount(row.get("お預入れ", row.get("預入金額", 0)))
+            balance_val = clean_amount(row.get("残高（お借入れはマイナス表示）", row.get("残高", 0)))
+            
+            amount_val = in_val if in_val > 0 else out_val
+            date_clean = format_date_str(date_raw)
+
+            # 口座間移動・振替・カード落ちの自動判定
+            is_transfer = "FALSE"
+            if any(k in name_val for k in ["振込セグチ", "フリカエ", "イオンフイナンシヤル", "チャージ", "振替"]):
+                is_transfer = "TRUE"
+
+            if date_raw and date_raw != "nan" and name_val and name_val != "nan" and amount_val > 0:
+                records.append({
+                    "date": date_clean,
+                    "original_name": name_val,
+                    "amount": amount_val,
+                    "category": "資金移動・振替" if is_transfer == "TRUE" else "未分類",
+                    "is_transfer": is_transfer,
+                    "balance": balance_val
+                })
+        return pd.DataFrame(records), df_raw
+
+    # 📊 MFデータパーサー
+    elif source_type == "mf_status":
         df_raw = pd.read_csv(StringIO(content))
         for _, row in df_raw.iterrows():
             date_raw = str(row.get("日付", ""))
@@ -80,6 +112,7 @@ def parse_csv_by_source(uploaded_file, source_type):
                 })
         return pd.DataFrame(records), df_raw
 
+    # 💳 カード明細パーサー
     elif source_type == "card_aeon":
         start_idx = 0
         for i, line in enumerate(lines):
@@ -139,15 +172,16 @@ def render_tab9_csv_importer():
     with col1:
         source_type = st.selectbox(
             "データ種別を選択",
-            ["mf_status", "card_aeon", "card_rakuten_pri", "card_rakuten_biz", "card_amazon", "sales_amazon", "sales_ebay", "sales_mercari", "sales_yahoo", "bank_status"],
+            ["mf_status", "bank_status", "card_aeon", "card_rakuten_pri", "card_rakuten_biz", "card_amazon", "sales_amazon", "sales_ebay", "sales_mercari", "sales_yahoo"],
             format_func=lambda x: {
                 "mf_status": "📊 MFデータ（マネーフォワード）",
+                "bank_status": "🏦 銀行明細（イオン銀行等）",
                 "card_aeon": "💳 イオンカード", "card_rakuten_pri": "💳 楽天(個)", "card_rakuten_biz": "💳 楽天(公)",
                 "card_amazon": "💳 Amazonカード", "sales_amazon": "🛍️ Amazon売上", "sales_ebay": "🛍️ eBay売上",
-                "sales_mercari": "🛍️ メルカリ売上", "sales_yahoo": "🛍️ ヤフオク売上", "bank_status": "🏦 銀行明細"
+                "sales_mercari": "🛍️ メルカリ売上", "sales_yahoo": "🛍️ ヤフオク売上"
             }.get(x, x)
         )
-        target_month = st.selectbox("対象年月", [f"2026-{m:02d}" for m in range(1, 13)], index=4)
+        target_month = st.selectbox("対象年月", [f"2026-{m:02d}" for m in range(1, 13)], index=7)
 
     uploaded_file = st.file_uploader("CSVファイルをドロップしてください", type=["csv"])
 
@@ -180,6 +214,7 @@ def render_tab9_csv_importer():
                         a_val = int(row.get("amount", 0))
                         parsed_cat = str(row.get("category", "未分類"))
                         is_trans = str(row.get("is_transfer", "FALSE"))
+                        bal_val = row.get("balance", "")
 
                         clean_name, category, ratio = apply_cleansing_rules(orig_name, df_rules)
                         if category == "未分類" and parsed_cat != "未分類":
@@ -197,7 +232,7 @@ def render_tab9_csv_importer():
                             "ratio": ratio,
                             "raw_id_ref": raw_id,
                             "receipt_url": "",
-                            "notes": f"自動取込: {target_month}"
+                            "notes": f"自動取込: {target_month} | 残高: ￥{bal_val:,}" if bal_val != "" else f"自動取込: {target_month}"
                         })
 
                     append_sheet_data("T_RawData", [raw_record])
