@@ -22,21 +22,6 @@ def categorize_transaction(row):
     else:
         return "3_生活費", f"生活費 ({cat if cat != '未分類' else 'その他・生活'})"
 
-def make_bar_html(val, max_val):
-    """セルの中に横バーと金額を描画するHTML生成関数"""
-    if max_val == 0 or pd.isna(val) or val <= 0:
-        pct = 0
-    else:
-        pct = min(int((val / max_val) * 100), 100)
-    
-    val_str = f"￥{int(val):,}"
-    return f'''
-    <div style="position: relative; width: 100%; height: 24px; background: #1e293b; border-radius: 4px; overflow: hidden; display: flex; align-items: center;">
-        <div style="position: absolute; left: 0; top: 0; bottom: 0; width: {pct}%; background: linear-gradient(90deg, #1d4ed8 0%, #3b82f6 100%); border-radius: 4px;"></div>
-        <span style="position: relative; z-index: 1; padding-left: 8px; font-size: 0.85rem; font-weight: 600; color: #ffffff;">{val_str}</span>
-    </div>
-    '''
-
 def render_tab12_summary_matrix():
     st.title("📊 月別・収支構造サマリー（損益・生活費マトリクス）")
     st.write("取り込んだデータを『収入（給与/物販/投資）』『事業経費』『生活費』に分類して月別に横断集計します。")
@@ -66,20 +51,30 @@ def render_tab12_summary_matrix():
         values="amount",
         aggfunc="sum",
         fill_value=0
-    )
+    ).reset_index()
 
     st.subheader("📈 月別・項目別収支表")
 
-    # 全体内の最大金額を取得して比率を決定
-    max_val = pivot_df.values.max() if not pivot_df.empty else 1
+    # 全体での最大値を計算（バーの最大スケール用）
+    month_cols = [c for c in pivot_df.columns if c not in ["group", "sub_group"]]
+    max_amount = int(pivot_df[month_cols].values.max()) if month_cols else 1000000
 
-    # 各セルをHTMLバー表示用データフレームに変換
-    html_pivot = pivot_df.copy().astype(object)
-    for col in pivot_df.columns:
-        html_pivot[col] = pivot_df[col].apply(lambda v: make_bar_html(v, max_val))
+    # Streamlit標準のプログレスバー設定（崩れゼロ）
+    column_config = {}
+    for col in month_cols:
+        column_config[col] = st.column_config.ProgressColumn(
+            col,
+            format="￥%d",
+            min_value=0,
+            max_value=max_amount
+        )
 
-    # HTMLテーブル出力（セル内データバーをレンダリング）
-    st.write(html_pivot.to_html(escape=False), unsafe_allow_html=True)
+    st.dataframe(
+        pivot_df,
+        column_config=column_config,
+        use_container_width=True,
+        hide_index=True
+    )
 
     st.markdown("---")
     
@@ -107,8 +102,17 @@ def render_tab12_summary_matrix():
         col_b1, col_b2 = st.columns([1, 2])
         with col_b1:
             st.write("**月末残高一覧**")
-            df_bal_show = pd.DataFrame(monthly_balance).rename(columns={"extracted_balance": "月末残高"})
-            st.dataframe(df_bal_show.style.format("￥{:,.0f}"), use_container_width=True)
+            df_bal_show = pd.DataFrame(monthly_balance).rename(columns={"extracted_balance": "月末残高"}).reset_index()
+            
+            max_bal = int(df_bal_show["月末残高"].max()) if not df_bal_show.empty else 1000000
+            st.dataframe(
+                df_bal_show,
+                column_config={
+                    "月末残高": st.column_config.ProgressColumn("月末残高", format="￥%d", min_value=0, max_value=max_bal)
+                },
+                use_container_width=True,
+                hide_index=True
+            )
         
         with col_b2:
             st.write("**残高推移チャート**")
