@@ -3,26 +3,37 @@ import pandas as pd
 import json
 from io import StringIO
 from datetime import datetime
-from utils.gas_api import load_sheet_data, append_sheet_data
+from utils.gas_api import append_sheet_data, load_sheet_data
 
 SHEET_RULES = "M_Rules"
 
 def clean_amount(val):
+    """金額の数値を絶対値(プラスの整数)に変換"""
     if pd.isna(val) or val is None:
         return 0
     val_str = str(val).replace("￥", "").replace("¥", "").replace(",", "").strip()
     try:
-        return int(float(val_str))
+        # マネーフォワード等の負の値(-660)も正の数値(660)として集計
+        return abs(int(float(val_str)))
     except ValueError:
         return 0
 
 def format_date_str(val):
-    val_str = str(val).strip().split(".")[0]
-    if len(val_str) == 6 and val_str.isdigit():
-        return f"20{val_str[:2]}-{val_str[2:4]}-{val_str[4:6]}"
-    elif len(val_str) == 8 and val_str.isdigit():
-        return f"{val_str[:4]}-{val_str[4:6]}-{val_str[6:8]}"
-    return val_str
+    """日付文字列を YYYY-MM-DD 形式へ統一変換"""
+    val_str = str(val).strip().replace("/", "-")
+    val_parts = val_str.split(" ")[0].split(".")
+    val_clean = val_parts[0]
+    
+    # 2026-01-31 などの形式
+    if len(val_clean) == 10 and val_clean.count("-") == 2:
+        return val_clean
+    # YYMMDD (例: 260512)
+    elif len(val_clean) == 6 and val_clean.isdigit():
+        return f"20{val_clean[:2]}-{val_clean[2:4]}-{val_clean[4:6]}"
+    # YYYYMMDD (例: 20260512)
+    elif len(val_clean) == 8 and val_clean.isdigit():
+        return f"{val_clean[:4]}-{val_clean[4:6]}-{val_clean[6:8]}"
+    return val_clean
 
 def apply_cleansing_rules(original_name, rules_df):
     """M_Rules のキーワードと照合して clean_name, category, ratio を返す"""
@@ -43,6 +54,7 @@ def apply_cleansing_rules(original_name, rules_df):
     return original_name, "未分類", 100
 
 def parse_csv_by_source(uploaded_file, source_type):
+    """データ種別ごとに最適な明細抽出を実行"""
     try:
         uploaded_file.seek(0)
         content = uploaded_file.read().decode("cp932", errors="ignore")
@@ -58,7 +70,34 @@ def parse_csv_by_source(uploaded_file, source_type):
 
     records = []
 
-    if source_type == "card_aeon":
+    # 📊 マネーフォワード ME 専用パーサー
+    if source_type == "mf_status":
+        df_raw = pd.read_csv(StringIO(content))
+        with st.expander("🔍 CSV解析データの詳細・検証情報（クリックで開閉）"):
+            st.write(" **認識されたヘッダー列名:**", list(df_raw.columns))
+
+        for _, row in df_raw.iterrows():
+            date_raw = str(row.get("日付", ""))
+            name_val = str(row.get("内容", ""))
+            amount_raw = row.get("金額（円）", 0)
+            is_transfer_val = str(row.get("振替", "0")).strip()
+            mf_cat = str(row.get("中項目", row.get("大項目", "未分類")))
+            
+            date_clean = format_date_str(date_raw)
+            amount_val = clean_amount(amount_raw)
+
+            if date_raw and date_raw != "nan" and name_val and name_val != "nan":
+                records.append({
+                    "date": date_clean,
+                    "original_name": name_val,
+                    "amount": amount_val,
+                    "category": mf_cat if mf_cat != "nan" else "未分類",
+                    "is_transfer": "TRUE" if is_transfer_val in ["1", "TRUE", "True"] else "FALSE"
+                })
+        return pd.DataFrame(records), df_raw
+
+    # 💳 イオンカード専用パーサー
+    elif source_type == "card_aeon":
         start_idx = 0
         for i, line in enumerate(lines):
             if any(k in line for k in ["ご利用日", "利用日", "ご利用先", "利用店名"]):
@@ -79,10 +118,13 @@ def parse_csv_by_source(uploaded_file, source_type):
                 records.append({
                     "date": date_clean,
                     "original_name": name_val,
-                    "amount": amount_val
+                    "amount": amount_val,
+                    "category": "未分類",
+                    "is_transfer": "FALSE"
                 })
         return pd.DataFrame(records), df_clean
 
+    # 🛍️ 汎用パーサー（その他のCSV）
     else:
         df_raw = pd.read_csv(StringIO(content))
         for _, row in df_raw.iterrows():
@@ -100,28 +142,30 @@ def parse_csv_by_source(uploaded_file, source_type):
                 records.append({
                     "date": date_val if date_val else datetime.now().strftime("%Y-%m-%d"),
                     "original_name": name_val,
-                    "amount": amount_val
+                    "amount": amount_val,
+                    "category": "未分類",
+                    "is_transfer": "FALSE"
                 })
         return pd.DataFrame(records), df_raw
 
 def render_tab9_csv_importer():
     st.title("📥 CSV一括取り込み・データ変換")
 
-    # ルール一覧のロード
     df_rules = load_sheet_data(SHEET_RULES)
 
     col1, col2 = st.columns([1, 2])
     with col1:
         source_type = st.selectbox(
             "データ種別を選択",
-            ["card_aeon", "card_rakuten_pri", "card_rakuten_biz", "card_amazon", "sales_amazon", "sales_ebay", "sales_mercari", "sales_yahoo", "bank_status"],
+            ["mf_status", "card_aeon", "card_rakuten_pri", "card_rakuten_biz", "card_amazon", "sales_amazon", "sales_ebay", "sales_mercari", "sales_yahoo", "bank_status"],
             format_func=lambda x: {
+                "mf_status": "📊 MFデータ（マネーフォワード）",
                 "card_aeon": "💳 イオンカード", "card_rakuten_pri": "💳 楽天(個)", "card_rakuten_biz": "💳 楽天(公)",
                 "card_amazon": "💳 Amazonカード", "sales_amazon": "🛍️ Amazon売上", "sales_ebay": "🛍️ eBay売上",
                 "sales_mercari": "🛍️ メルカリ売上", "sales_yahoo": "🛍️ ヤフオク売上", "bank_status": "🏦 銀行明細"
             }.get(x, x)
         )
-        target_month = st.selectbox("対象年月", [f"2026-{m:02d}" for m in range(1, 13)], index=6)
+        target_month = st.selectbox("対象年月", [f"2026-{m:02d}" for m in range(1, 13)], index=0)
 
     uploaded_file = st.file_uploader("CSVファイルをドロップしてください", type=["csv"])
 
@@ -130,6 +174,8 @@ def render_tab9_csv_importer():
             df_parsed, df_raw = parse_csv_by_source(uploaded_file, source_type)
 
             st.success(f"🎉 解析成功: {len(df_parsed)} 件の取引データを抽出しました！")
+            st.subheader("👀 クレンジング後プレビュー（先頭5件）")
+            st.dataframe(df_parsed.head(), use_container_width=True)
 
             if len(df_parsed) > 0 and st.button("🚀 データを確定してスプレッドシートへ取り込む", type="primary"):
                 with st.spinner("自動名寄せルールを適用して登録中..."):
@@ -149,9 +195,13 @@ def render_tab9_csv_importer():
                         d_val = str(row.get("date", ""))
                         orig_name = str(row.get("original_name", ""))
                         a_val = int(row.get("amount", 0))
+                        parsed_cat = str(row.get("category", "未分類"))
+                        is_trans = str(row.get("is_transfer", "FALSE"))
 
-                        # 🆕 自動名寄せ＆科目ルールの適用
+                        # M_Rules のルールがある場合は適用し、無ければMFの中項目等をそのまま採用
                         clean_name, category, ratio = apply_cleansing_rules(orig_name, df_rules)
+                        if category == "未分類" and parsed_cat != "未分類":
+                            category = parsed_cat
 
                         tx_records.append({
                             "transaction_id": f"TX_{raw_id}_{idx+1:04d}",
@@ -161,7 +211,7 @@ def render_tab9_csv_importer():
                             "clean_name": clean_name,
                             "category": category,
                             "amount": a_val,
-                            "is_transfer": "FALSE",
+                            "is_transfer": is_trans,
                             "ratio": ratio,
                             "raw_id_ref": raw_id,
                             "receipt_url": "",
@@ -176,7 +226,7 @@ def render_tab9_csv_importer():
 
                     if res_tx:
                         st.balloons()
-                        st.success(f"🎉 登録完了！ 名寄せ・科目ルールを適用して {len(tx_records)} 件を登録しました！")
+                        st.success(f"🎉 登録完了！ MFデータ {len(tx_records)} 件を登録し、星取り表の「MFデータ」を自動更新しました！")
                     else:
                         st.error("書き込みに失敗しました。")
 
