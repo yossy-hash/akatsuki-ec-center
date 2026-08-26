@@ -3,40 +3,33 @@ import pandas as pd
 import json
 from io import StringIO
 from datetime import datetime
-from utils.gas_api import append_sheet_data, load_sheet_data
+from utils.gas_api import append_sheet_data, load_sheet_data, call_gas_action
 
 SHEET_RULES = "M_Rules"
 
 def clean_amount(val):
-    """金額の数値を絶対値(プラスの整数)に変換"""
     if pd.isna(val) or val is None:
         return 0
     val_str = str(val).replace("￥", "").replace("¥", "").replace(",", "").strip()
     try:
-        # マネーフォワード等の負の値(-660)も正の数値(660)として集計
         return abs(int(float(val_str)))
     except ValueError:
         return 0
 
 def format_date_str(val):
-    """日付文字列を YYYY-MM-DD 形式へ統一変換"""
     val_str = str(val).strip().replace("/", "-")
     val_parts = val_str.split(" ")[0].split(".")
     val_clean = val_parts[0]
     
-    # 2026-01-31 などの形式
     if len(val_clean) == 10 and val_clean.count("-") == 2:
         return val_clean
-    # YYMMDD (例: 260512)
     elif len(val_clean) == 6 and val_clean.isdigit():
         return f"20{val_clean[:2]}-{val_clean[2:4]}-{val_clean[4:6]}"
-    # YYYYMMDD (例: 20260512)
     elif len(val_clean) == 8 and val_clean.isdigit():
         return f"{val_clean[:4]}-{val_clean[4:6]}-{val_clean[6:8]}"
     return val_clean
 
 def apply_cleansing_rules(original_name, rules_df):
-    """M_Rules のキーワードと照合して clean_name, category, ratio を返す"""
     if rules_df.empty or "keyword" not in rules_df.columns:
         return original_name, "未分類", 100
 
@@ -54,7 +47,6 @@ def apply_cleansing_rules(original_name, rules_df):
     return original_name, "未分類", 100
 
 def parse_csv_by_source(uploaded_file, source_type):
-    """データ種別ごとに最適な明細抽出を実行"""
     try:
         uploaded_file.seek(0)
         content = uploaded_file.read().decode("cp932", errors="ignore")
@@ -70,12 +62,8 @@ def parse_csv_by_source(uploaded_file, source_type):
 
     records = []
 
-    # 📊 マネーフォワード ME 専用パーサー
     if source_type == "mf_status":
         df_raw = pd.read_csv(StringIO(content))
-        with st.expander("🔍 CSV解析データの詳細・検証情報（クリックで開閉）"):
-            st.write(" **認識されたヘッダー列名:**", list(df_raw.columns))
-
         for _, row in df_raw.iterrows():
             date_raw = str(row.get("日付", ""))
             name_val = str(row.get("内容", ""))
@@ -96,7 +84,6 @@ def parse_csv_by_source(uploaded_file, source_type):
                 })
         return pd.DataFrame(records), df_raw
 
-    # 💳 イオンカード専用パーサー
     elif source_type == "card_aeon":
         start_idx = 0
         for i, line in enumerate(lines):
@@ -124,7 +111,6 @@ def parse_csv_by_source(uploaded_file, source_type):
                 })
         return pd.DataFrame(records), df_clean
 
-    # 🛍️ 汎用パーサー（その他のCSV）
     else:
         df_raw = pd.read_csv(StringIO(content))
         for _, row in df_raw.iterrows():
@@ -178,7 +164,14 @@ def render_tab9_csv_importer():
             st.dataframe(df_parsed.head(), use_container_width=True)
 
             if len(df_parsed) > 0 and st.button("🚀 データを確定してスプレッドシートへ取り込む", type="primary"):
-                with st.spinner("自動名寄せルールを適用して登録中..."):
+                with st.spinner("古い同月データを安全にクレンジング・上書き登録中..."):
+                    
+                    # 1. 🆕 既に同月・同種別のデータが存在する場合は安全に一括削除する
+                    call_gas_action("delete_existing_data", {
+                        "target_month": target_month,
+                        "source_type": source_type
+                    })
+
                     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     raw_id = f"RAW_{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
@@ -198,7 +191,6 @@ def render_tab9_csv_importer():
                         parsed_cat = str(row.get("category", "未分類"))
                         is_trans = str(row.get("is_transfer", "FALSE"))
 
-                        # M_Rules のルールがある場合は適用し、無ければMFの中項目等をそのまま採用
                         clean_name, category, ratio = apply_cleansing_rules(orig_name, df_rules)
                         if category == "未分類" and parsed_cat != "未分類":
                             category = parsed_cat
@@ -218,6 +210,7 @@ def render_tab9_csv_importer():
                             "notes": f"自動取込: {target_month}"
                         })
 
+                    # 2. 新しいデータを書き込み
                     append_sheet_data("T_RawData", [raw_record])
                     res_tx = append_sheet_data("T_Transactions", tx_records)
 
@@ -226,7 +219,7 @@ def render_tab9_csv_importer():
 
                     if res_tx:
                         st.balloons()
-                        st.success(f"🎉 登録完了！ MFデータ {len(tx_records)} 件を登録し、星取り表の「MFデータ」を自動更新しました！")
+                        st.success(f"🎉 上書き登録完了！ [{target_month}] のデータを最新にクリア＆登録しました！")
                     else:
                         st.error("書き込みに失敗しました。")
 
