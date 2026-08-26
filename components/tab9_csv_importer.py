@@ -55,7 +55,6 @@ def parse_csv_by_source(uploaded_file, source_type):
         content = uploaded_file.read().decode("utf-8", errors="ignore")
 
     lines = [line for line in content.splitlines() if line.strip()]
-
     records = []
 
     # 🏦 銀行明細（イオン銀行等）専用パーサー
@@ -65,7 +64,6 @@ def parse_csv_by_source(uploaded_file, source_type):
             date_raw = str(row.get("日付", ""))
             name_val = str(row.get("お取引内容", row.get("摘要", row.get("内容", ""))))
             
-            # 引出し／預入れの金額判定
             out_val = clean_amount(row.get("お引出し", row.get("引出金額", 0)))
             in_val = clean_amount(row.get("お預入れ", row.get("預入金額", 0)))
             balance_val = clean_amount(row.get("残高（お借入れはマイナス表示）", row.get("残高", 0)))
@@ -73,7 +71,6 @@ def parse_csv_by_source(uploaded_file, source_type):
             amount_val = in_val if in_val > 0 else out_val
             date_clean = format_date_str(date_raw)
 
-            # 口座間移動・振替・カード落ちの自動判定
             is_transfer = "FALSE"
             if any(k in name_val for k in ["振込セグチ", "フリカエ", "イオンフイナンシヤル", "チャージ", "振替"]):
                 is_transfer = "TRUE"
@@ -181,7 +178,7 @@ def render_tab9_csv_importer():
                 "sales_mercari": "🛍️ メルカリ売上", "sales_yahoo": "🛍️ ヤフオク売上"
             }.get(x, x)
         )
-        target_month = st.selectbox("対象年月", [f"2026-{m:02d}" for m in range(1, 13)], index=7)
+        target_month = st.selectbox("基準対象年月", [f"2026-{m:02d}" for m in range(1, 13)], index=7)
 
     uploaded_file = st.file_uploader("CSVファイルをドロップしてください", type=["csv"])
 
@@ -189,7 +186,15 @@ def render_tab9_csv_importer():
         try:
             df_parsed, df_raw = parse_csv_by_source(uploaded_file, source_type)
 
+            # 🆕 データ内の全年月（YYYY-MM）を自動判別
+            detected_months = sorted(list(set(df_parsed["date"].str.slice(0, 7).dropna().unique())))
+            detected_months = [m for m in detected_months if len(m) == 7 and m.startswith("20")]
+
             st.success(f"🎉 解析成功: {len(df_parsed)} 件の取引データを抽出しました！")
+            
+            if detected_months:
+                st.info(f"📅 **自動検出された対象年月**: {', '.join(detected_months)} （星取り表を一括でOKに更新します）")
+
             st.subheader("👀 クレンジング後プレビュー（先頭5件）")
             st.dataframe(df_parsed.head(), use_container_width=True)
 
@@ -220,6 +225,9 @@ def render_tab9_csv_importer():
                         if category == "未分類" and parsed_cat != "未分類":
                             category = parsed_cat
 
+                        # 対象年月の付与（個別明細の日付基準）
+                        row_month = d_val[:7] if len(d_val) >= 7 else target_month
+
                         tx_records.append({
                             "transaction_id": f"TX_{raw_id}_{idx+1:04d}",
                             "date": d_val,
@@ -232,18 +240,26 @@ def render_tab9_csv_importer():
                             "ratio": ratio,
                             "raw_id_ref": raw_id,
                             "receipt_url": "",
-                            "notes": f"自動取込: {target_month} | 残高: ￥{bal_val:,}" if bal_val != "" else f"自動取込: {target_month}"
+                            "notes": f"自動取込: {row_month} | 残高: ￥{bal_val:,}" if bal_val != "" else f"自動取込: {row_month}"
                         })
 
                     append_sheet_data("T_RawData", [raw_record])
                     res_tx = append_sheet_data("T_Transactions", tx_records)
 
-                    status_record = {"month": target_month, "last_updated": now_str, source_type: "OK"}
-                    append_sheet_data("T_ImportStatus", [status_record])
+                    # 🆕 検出されたすべての月の星取り表（T_ImportStatus）を自動一括OK更新
+                    status_records = []
+                    months_to_update = detected_months if detected_months else [target_month]
+                    for m in months_to_update:
+                        status_records.append({
+                            "month": m,
+                            "last_updated": now_str,
+                            source_type: "OK"
+                        })
+                    append_sheet_data("T_ImportStatus", status_records)
 
                     if res_tx:
                         st.balloons()
-                        st.success(f"🎉 登録完了！ [{target_month}] に {len(tx_records)} 件のデータを正常登録しました！")
+                        st.success(f"🎉 登録完了！ 検出された {len(months_to_update)} ヶ月分（{', '.join(months_to_update)}）のデータを全て正常登録＆星取り完了しました！")
                     else:
                         st.error("書き込みに失敗しました。")
 
