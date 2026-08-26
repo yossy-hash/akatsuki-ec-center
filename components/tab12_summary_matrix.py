@@ -44,6 +44,7 @@ def render_tab12_summary_matrix():
 
     df_valid[["group", "sub_group"]] = df_valid.apply(categorize_transaction, axis=1, result_type="expand")
 
+    # 全体集計データ
     pivot_df = pd.pivot_table(
         df_valid,
         index=["group", "sub_group"],
@@ -53,28 +54,29 @@ def render_tab12_summary_matrix():
         fill_value=0
     ).reset_index()
 
-    st.subheader("📈 月別・項目別収支表")
-
-    # 全体での最大値を計算（バーの最大スケール用）
     month_cols = [c for c in pivot_df.columns if c not in ["group", "sub_group"]]
-    max_amount = int(pivot_df[month_cols].values.max()) if month_cols else 1000000
 
-    # Streamlit標準のプログレスバー設定（崩れゼロ）
-    column_config = {}
-    for col in month_cols:
-        column_config[col] = st.column_config.ProgressColumn(
-            col,
-            format="￥%d",
-            min_value=0,
-            max_value=max_amount
-        )
+    # 1. 🟢 収入テーブル (group == '1_収入')
+    st.subheader("🟢 収入サマリー（給与・売上・投資）")
+    df_inc = pivot_df[pivot_df["group"] == "1_収入"].drop(columns=["group"])
+    if not df_inc.empty:
+        max_inc = int(df_inc[month_cols].values.max()) if month_cols and df_inc[month_cols].values.max() > 0 else 1000000
+        config_inc = {col: st.column_config.ProgressColumn(col, format="￥%d", min_value=0, max_value=max_inc) for col in month_cols}
+        st.dataframe(df_inc, column_config=config_inc, use_container_width=True, hide_index=True)
+    else:
+        st.caption("収入データがありません。")
 
-    st.dataframe(
-        pivot_df,
-        column_config=column_config,
-        use_container_width=True,
-        hide_index=True
-    )
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # 2. 🔴 支出テーブル (group in ['2_事業経費', '3_生活費'])
+    st.subheader("🔴 支出サマリー（事業経費・プライベート生活費）")
+    df_exp = pivot_df[pivot_df["group"].isin(["2_事業経費", "3_生活費"])].drop(columns=["group"])
+    if not df_exp.empty:
+        max_exp = int(df_exp[month_cols].values.max()) if month_cols and df_exp[month_cols].values.max() > 0 else 1000000
+        config_exp = {col: st.column_config.ProgressColumn(col, format="￥%d", min_value=0, max_value=max_exp) for col in month_cols}
+        st.dataframe(df_exp, column_config=config_exp, use_container_width=True, hide_index=True)
+    else:
+        st.caption("支出データがありません。")
 
     st.markdown("---")
     
@@ -103,7 +105,6 @@ def render_tab12_summary_matrix():
         with col_b1:
             st.write("**月末残高一覧**")
             df_bal_show = pd.DataFrame(monthly_balance).rename(columns={"extracted_balance": "月末残高"}).reset_index()
-            
             max_bal = int(df_bal_show["月末残高"].max()) if not df_bal_show.empty else 1000000
             st.dataframe(
                 df_bal_show,
