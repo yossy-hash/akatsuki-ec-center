@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import urllib.parse
 from utils.gas_api import load_sheet_data, append_sheet_data
 
 SHEET_ITEM = "M_Item"
@@ -9,7 +10,6 @@ def render_tab1_research():
     st.title("🔍 マルチプラットフォーム・リサーチ＆ストック")
     st.write("各プラットフォーム・Keepa・セラー情報からリサーチを行い、見込み商品を『M_Item』へ保存します。")
 
-    # 既存の保存済み商品マスター（M_Item）を読み込み
     df_items = load_sheet_data(SHEET_ITEM)
 
     # =========================================================================
@@ -38,6 +38,14 @@ def render_tab1_research():
             
             k_profit = int(k_sell_price - k_buy_price - (k_sell_price * 0.15) - 500)
             st.metric("見込み純利益 (概算)", f"￥{k_profit:,}")
+
+            # 🔗 人間がクリックして開く直リンク
+            amazon_url = f"https://www.amazon.co.jp/s?k={urllib.parse.quote(k_jan)}"
+            keepa_url = f"https://keepa.com/#!search/5-{urllib.parse.quote(k_jan)}"
+            
+            st.markdown(f"🔗 **外部サイト直リンク (クリックで開く)**")
+            st.markdown(f"- 📦 [Amazonで `{k_jan}` を検索]({amazon_url})")
+            st.markdown(f"- 📈 [Keepaで `{k_jan}` を解析]({keepa_url})")
 
         with col_k2:
             st.caption("📷 Keepaデータ＆グラフプレビュー")
@@ -81,6 +89,11 @@ def render_tab1_research():
             e_profit = int(e_sell_jpy - e_buy_price - (e_sell_jpy * 0.15) - 3000)
             st.metric("見込み純利益 (概算)", f"￥{e_profit:,} (売上: ￥{e_sell_jpy:,})")
 
+            # 🔗 人間がクリックして開く直リンク
+            ebay_url = f"https://www.ebay.com/sch/i.html?_nkw={urllib.parse.quote(e_title)}&LH_Sold=1&LH_Complete=1"
+            st.markdown(f"🔗 **外部サイト直リンク (クリックで開く)**")
+            st.markdown(f"- 🌏 [eBay SOLD履歴で `{e_title}` を検索]({ebay_url})")
+
         with col_e2:
             st.caption("🌏 テラピーク・相場サマリー")
             st.info("📊 **[eBay SOLD 相場]** 直近90日落札平均: $385.00 | 落札率: 78% | 売れ筋コンディション: Excellent+")
@@ -114,13 +127,19 @@ def render_tab1_research():
         with col_j1:
             j_title = st.text_input("国内検索キーワード", value="ニコン D750 ボディ 美品", key="j_title")
             j_buy_limit = st.number_input("仕入れ上限価格 (円)", value=32000, step=1000, key="j_limit")
-            st.caption("💡 この価格以下でオークション落札/フリマ購入できれば利益確定")
+            
+            # 🔗 人間がクリックして開く直リンク
+            yafuok_url = f"https://auctions.yahoo.co.jp/search/search?p={urllib.parse.quote(j_title)}"
+            mercari_url = f"https://jp.mercari.com/search?keyword={urllib.parse.quote(j_title)}"
+            
+            st.markdown(f"🔗 **仕入れサイト検索直リンク (クリックで開く)**")
+            st.markdown(f"- 🔨 [ヤフオクで `{j_title}` を検索]({yafuok_url})")
+            st.markdown(f"- 🔴 [メルカリで `{j_title}` を検索]({mercari_url})")
 
         with col_j2:
-            st.write("🔗 **外部ツール・相場確認リンク**")
+            st.write("🔗 **外部管理ツール**")
             st.markdown("- [オークファンで相場確認](https://aucfan.com/)")
             st.markdown("- [オークタウンで一括出品準備](https://auktown.jp/)")
-            st.markdown("- [メルカリで検索](https://jp.mercari.com/)")
 
     # -------------------------------------------------------------------------
     # TAB 4: セラー追跡
@@ -129,12 +148,11 @@ def render_tab1_research():
         st.subheader("👤 マーク中神セラー・追跡リスト")
         col_s1, col_s2 = st.columns([1, 1])
         with col_s1:
-            st.selectbox("ターゲットセラー選択", [
-                "【eBay】Camera_Japan_Store (評価: 1,500)", 
-                "【Amazon】ドラッグストア格安堂 (評価: 98%)",
-                "【メルカリ】カメラ専門☆即購入OK"
-            ])
-            st.button("🔍 選択セラーの最新出品を取得 (ダミー)", key="btn_fetch_seller")
+            st.markdown("🔗 **神セラーショップ直リンク (クリックで移動)**")
+            st.markdown("- 🌏 [【eBay】Camera_Japan_Store の出品一覧](https://www.ebay.com/usr/Camera_Japan_Store)")
+            st.markdown("- 📦 [【Amazon】ドラッグストア格安堂 の評価ページ](https://www.amazon.co.jp/)")
+            st.markdown("- 🔴 [【メルカリ】カメラ専門☆即購入OK の出品ページ](https://jp.mercari.com/)")
+            
         with col_s2:
             st.text_input("新規セラーID/URLを追加メモ", placeholder="Seller IDを入力...", key="new_seller")
             st.button("➕ セラーを記憶", key="btn_save_seller")
@@ -147,7 +165,6 @@ def render_tab1_research():
     st.write("仕入れ候補・価格・購入状況（購入前/予定/済）を統合管理するワークスペースです。")
 
     if not df_items.empty:
-        # カラムが存在しない場合の初期補正
         if "purchase_status" not in df_items.columns:
             df_items["purchase_status"] = "購入前"
         if "jan_asin" not in df_items.columns:
