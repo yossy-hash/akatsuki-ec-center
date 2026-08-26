@@ -11,21 +11,31 @@ def categorize_transaction(row):
     cat = str(row.get("category", ""))
     orig_name = str(row.get("original_name", ""))
     
-    # 1. 収入判定
     if "sales" in src or any(k in orig_name for k in ["売上", "メルカリ", "ヤフオク", "Amazon"]):
         return "1_収入", "物販売上"
     elif "給与" in cat or "給与" in orig_name:
         return "1_収入", "給与収入"
     elif any(k in cat or k in orig_name for k in ["投資", "配当", "利息", "暗号資産", "ビットコイン"]):
         return "1_収入", "投資・その他"
-    
-    # 2. 事業経費判定
     elif cat in ["仕入高", "旅費交通費", "通信費", "接待交際費", "消耗品費", "会議費", "地代家賃", "広告宣伝費"] or "経費" in cat:
         return "2_事業経費", f"経費 ({cat})"
-    
-    # 3. プライベート生活費判定
     else:
         return "3_生活費", f"生活費 ({cat if cat != '未分類' else 'その他・生活'})"
+
+def make_bar_html(val, max_val):
+    """セルの中に横バーと金額を描画するHTML生成関数"""
+    if max_val == 0 or pd.isna(val) or val <= 0:
+        pct = 0
+    else:
+        pct = min(int((val / max_val) * 100), 100)
+    
+    val_str = f"￥{int(val):,}"
+    return f'''
+    <div style="position: relative; width: 100%; height: 24px; background: #1e293b; border-radius: 4px; overflow: hidden; display: flex; align-items: center;">
+        <div style="position: absolute; left: 0; top: 0; bottom: 0; width: {pct}%; background: linear-gradient(90deg, #1d4ed8 0%, #3b82f6 100%); border-radius: 4px;"></div>
+        <span style="position: relative; z-index: 1; padding-left: 8px; font-size: 0.85rem; font-weight: 600; color: #ffffff;">{val_str}</span>
+    </div>
+    '''
 
 def render_tab12_summary_matrix():
     st.title("📊 月別・収支構造サマリー（損益・生活費マトリクス）")
@@ -37,22 +47,18 @@ def render_tab12_summary_matrix():
         st.info("データがまだありません。CSV取り込み画面から取引データを登録してください。")
         return
 
-    # 日付列の整形と年月 (YYYY-MM) の抽出
     df_tx["date_str"] = df_tx["date"].astype(str).str.strip()
     df_tx["month"] = df_tx["date_str"].str.slice(0, 7)
     df_tx["amount"] = pd.to_numeric(df_tx["amount"], errors="coerce").fillna(0)
 
-    # 有効な年月データのみにフィルタリング
     df_valid = df_tx[df_tx["month"].str.match(r"^\d{4}-\d{2}$")].copy()
 
     if df_valid.empty:
         st.warning("有効な日付フォーマット（YYYY-MM-DD）の取引データが見つかりませんでした。")
         return
 
-    # 1. 収支カテゴリ分類
     df_valid[["group", "sub_group"]] = df_valid.apply(categorize_transaction, axis=1, result_type="expand")
 
-    # 2. ピボットテーブル集計
     pivot_df = pd.pivot_table(
         df_valid,
         index=["group", "sub_group"],
@@ -64,33 +70,25 @@ def render_tab12_summary_matrix():
 
     st.subheader("📈 月別・項目別収支表")
 
-    # 🆕 エクセルのデータバー風 スタイル適用
-    styled_pivot = (
-        pivot_df.style
-        .format("￥{:,.0f}")
-        .bar(
-            subset=pivot_df.columns,
-            color="#2563eb",  # バーの色（スマートなブルー）
-            vmin=0,
-            align="left"
-        )
-    )
+    # 全体内の最大金額を取得して比率を決定
+    max_val = pivot_df.values.max() if not pivot_df.empty else 1
 
-    st.dataframe(
-        styled_pivot,
-        use_container_width=True
-    )
+    # 各セルをHTMLバー表示用データフレームに変換
+    html_pivot = pivot_df.copy().astype(object)
+    for col in pivot_df.columns:
+        html_pivot[col] = pivot_df[col].apply(lambda v: make_bar_html(v, max_val))
+
+    # HTMLテーブル出力（セル内データバーをレンダリング）
+    st.write(html_pivot.to_html(escape=False), unsafe_allow_html=True)
 
     st.markdown("---")
     
-    # 3. 月別収支推移グラフ
     st.subheader("📊 月別収支推移")
     summary_by_month = df_valid.groupby(["month", "group"])["amount"].sum().unstack(fill_value=0)
     st.bar_chart(summary_by_month)
 
     st.markdown("---")
 
-    # 4. 銀行残高推移の自動抽出・表示
     st.subheader("🏦 月末・銀行残高推移")
 
     def extract_balance(notes_str):
@@ -110,14 +108,7 @@ def render_tab12_summary_matrix():
         with col_b1:
             st.write("**月末残高一覧**")
             df_bal_show = pd.DataFrame(monthly_balance).rename(columns={"extracted_balance": "月末残高"})
-            
-            # 残高一覧側にもデータバーを適用
-            styled_bal = (
-                df_bal_show.style
-                .format("￥{:,.0f}")
-                .bar(subset=["月末残高"], color="#10b981", vmin=0, align="left")
-            )
-            st.dataframe(styled_bal, use_container_width=True)
+            st.dataframe(df_bal_show.style.format("￥{:,.0f}"), use_container_width=True)
         
         with col_b2:
             st.write("**残高推移チャート**")
