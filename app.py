@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 from utils.gas_api import load_sheet_data
 from components.tab1_inventory import render_tab1_inventory
 from components.tab3_listing import render_tab3_listing
@@ -12,7 +13,7 @@ from components.tab12_summary_matrix import render_tab12_summary_matrix
 
 st.set_page_config(page_title="AKATSUKI 統合ECコマンドセンター", layout="wide")
 
-# --- UI/UX最適化＆大型ボタン専用CSS ---
+# --- UI/UX CSS ---
 st.markdown("""
 <style>
     .block-container {
@@ -21,7 +22,6 @@ st.markdown("""
         padding-left: 1rem !important;
         padding-right: 1rem !important;
     }
-    
     .header-title {
         font-size: 1.15rem;
         font-weight: bold;
@@ -29,11 +29,9 @@ st.markdown("""
         margin: 0;
         padding: 0;
     }
-
     section[data-testid="stSidebar"] {
         background-color: #1a1c23 !important;
     }
-    
     .sidebar-brand {
         font-size: 1.3rem !important;
         font-weight: 800 !important;
@@ -44,7 +42,6 @@ st.markdown("""
         border-bottom: 2px solid #3b82f6;
         padding-bottom: 0.5rem;
     }
-
     section[data-testid="stSidebar"] div.stButton > button {
         width: 100% !important;
         height: 3.5rem !important;
@@ -60,14 +57,12 @@ st.markdown("""
         transition: all 0.2s ease-in-out !important;
         box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
     }
-
     section[data-testid="stSidebar"] div.stButton > button:hover {
         background: #2d3245 !important;
         border-color: #60a5fa !important;
         color: #ffffff !important;
         transform: translateY(-2px) !important;
     }
-
     section[data-testid="stSidebar"] div.stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
         border-color: #60a5fa !important;
@@ -77,14 +72,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# セッション状態の初期化
 if "current_tab" not in st.session_state:
     st.session_state["current_tab"] = "📦 在庫管理"
 
-# サイドバーヘッダー
 st.sidebar.markdown('<div class="sidebar-brand">⚡ AKATSUKI 統合EC</div>', unsafe_allow_html=True)
 
-# ナビゲーションメニュー定義
 NAV_ITEMS = [
     ("🔍 リサーチ・仕入れ", "tab_sourcing"),
     ("📦 在庫管理", "tab_inventory"),
@@ -101,7 +93,6 @@ NAV_ITEMS = [
     ("⚙️ 名寄せルール設定", "tab_rules")
 ]
 
-# 巨大カードボタンの動的生成
 for label, key_id in NAV_ITEMS:
     is_selected = (st.session_state["current_tab"] == label)
     btn_type = "primary" if is_selected else "secondary"
@@ -112,13 +103,22 @@ for label, key_id in NAV_ITEMS:
 
 selected_tab = st.session_state["current_tab"]
 
-# 各画面のルーティング切替
+# 🔍 状況把握用デバッグ表示（展開して確認可能）
+with st.expander("🛠️ データ読み込み診断モニター（状況把握用）", expanded=False):
+    st.write(f"**現在の選択タブ**: `{selected_tab}`")
+
+# ルーティング切替
 if selected_tab == "🔍 リサーチ・仕入れ":
     if hasattr(tab4_sourcing, "render"):
         tab4_sourcing.render()
 
 elif selected_tab == "📦 在庫管理":
-    df_raw_inventory = load_sheet_data("EC_Inventory")
+    target_sheet = "EC_Inventory"
+    df_raw_inventory = load_sheet_data(target_sheet)
+    
+    # 診断ログの表示
+    st.caption(f"🔍 参照シート: `{target_sheet}` | 取得件数: {len(df_raw_inventory)} 行 | 取得列: {list(df_raw_inventory.columns)}")
+    
     render_tab1_inventory(df_raw_inventory)
 
 elif selected_tab == "📄 出品Docs作成":
