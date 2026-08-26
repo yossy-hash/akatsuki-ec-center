@@ -44,7 +44,7 @@ def render_tab12_summary_matrix():
 
     df_valid[["group", "sub_group"]] = df_valid.apply(categorize_transaction, axis=1, result_type="expand")
 
-    # 全体集計データ
+    # 全体集計ピボットテーブル
     pivot_df = pd.pivot_table(
         df_valid,
         index=["group", "sub_group"],
@@ -56,7 +56,7 @@ def render_tab12_summary_matrix():
 
     month_cols = [c for c in pivot_df.columns if c not in ["group", "sub_group"]]
 
-    # 1. 🟢 収入テーブル (group == '1_収入')
+    # 1. 🟢 収入サマリーテーブル
     st.subheader("🟢 収入サマリー（給与・売上・投資）")
     df_inc = pivot_df[pivot_df["group"] == "1_収入"].drop(columns=["group"])
     if not df_inc.empty:
@@ -68,7 +68,7 @@ def render_tab12_summary_matrix():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 2. 🔴 支出テーブル (group in ['2_事業経費', '3_生活費'])
+    # 2. 🔴 支出サマリーテーブル
     st.subheader("🔴 支出サマリー（事業経費・プライベート生活費）")
     df_exp = pivot_df[pivot_df["group"].isin(["2_事業経費", "3_生活費"])].drop(columns=["group"])
     if not df_exp.empty:
@@ -80,12 +80,14 @@ def render_tab12_summary_matrix():
 
     st.markdown("---")
     
+    # 3. 月別収支推移積み上げグラフ
     st.subheader("📊 月別収支推移")
     summary_by_month = df_valid.groupby(["month", "group"])["amount"].sum().unstack(fill_value=0)
     st.bar_chart(summary_by_month)
 
     st.markdown("---")
 
+    # 4. 🏦 月末・銀行残高推移
     st.subheader("🏦 月末・銀行残高推移")
 
     def extract_balance(notes_str):

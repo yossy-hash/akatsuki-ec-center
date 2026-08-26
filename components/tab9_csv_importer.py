@@ -57,8 +57,36 @@ def parse_csv_by_source(uploaded_file, source_type):
     lines = [line for line in content.splitlines() if line.strip()]
     records = []
 
+    # 🏦 楽天銀行（個人口座 RB-torihikimeisai.csv）専用パーサー
+    if source_type == "bank_rakuten_pri":
+        df_raw = pd.read_csv(StringIO(content))
+        for _, row in df_raw.iterrows():
+            date_raw = str(row.get("取引日", ""))
+            name_val = str(row.get("入出金内容", ""))
+            
+            # 入出金(円) から金額取得（プラス・マイナス問わず絶対値化）
+            amount_val = clean_amount(row.get("入出金(円)", 0))
+            balance_val = clean_amount(row.get("取引後残高(円)", 0))
+            date_clean = format_date_str(date_raw)
+
+            # 口座間移動・固定振替の自動判定
+            is_transfer = "FALSE"
+            if any(k in name_val for k in ["セグチ ヨウヘイ", "ゆうちょ銀行", "ラクテンカ－ド", "コクミンネンキン", "DF.ヤチントウ"]):
+                is_transfer = "TRUE"
+
+            if date_raw and date_raw != "nan" and name_val and name_val != "nan" and amount_val > 0:
+                records.append({
+                    "date": date_clean,
+                    "original_name": name_val,
+                    "amount": amount_val,
+                    "category": "資金移動・振替" if is_transfer == "TRUE" else "未分類",
+                    "is_transfer": is_transfer,
+                    "balance": balance_val
+                })
+        return pd.DataFrame(records), df_raw
+
     # 🏦 銀行明細（イオン銀行等）専用パーサー
-    if source_type in ["bank_status", "bank_aeon"]:
+    elif source_type in ["bank_status", "bank_aeon"]:
         df_raw = pd.read_csv(StringIO(content))
         for _, row in df_raw.iterrows():
             date_raw = str(row.get("日付", ""))
@@ -145,9 +173,9 @@ def parse_csv_by_source(uploaded_file, source_type):
                 c_str = str(col)
                 if any(k in c_str for k in ["ご利用日", "利用日", "日付", "取引日"]):
                     date_val = format_date_str(row[col])
-                elif any(k in c_str for k in ["ご利用先", "利用店", "内容", "摘要"]):
+                elif any(k in c_str for k in ["ご利用先", "利用店", "内容", "摘要", "入出金内容"]):
                     name_val = str(row[col])
-                elif any(k in c_str for k in ["ご利用金額", "金額", "支払", "売上"]):
+                elif any(k in c_str for k in ["ご利用金額", "金額", "支払", "売上", "入出金(円)"]):
                     amount_val = clean_amount(row[col])
             
             if name_val and name_val != "nan" and amount_val > 0:
@@ -169,9 +197,10 @@ def render_tab9_csv_importer():
     with col1:
         source_type = st.selectbox(
             "データ種別を選択",
-            ["mf_status", "bank_status", "card_aeon", "card_rakuten_pri", "card_rakuten_biz", "card_amazon", "sales_amazon", "sales_ebay", "sales_mercari", "sales_yahoo"],
+            ["mf_status", "bank_rakuten_pri", "bank_status", "card_aeon", "card_rakuten_pri", "card_rakuten_biz", "card_amazon", "sales_amazon", "sales_ebay", "sales_mercari", "sales_yahoo"],
             format_func=lambda x: {
                 "mf_status": "📊 MFデータ（マネーフォワード）",
+                "bank_rakuten_pri": "🏦 楽天銀行（個人口座）",
                 "bank_status": "🏦 銀行明細（イオン銀行等）",
                 "card_aeon": "💳 イオンカード", "card_rakuten_pri": "💳 楽天(個)", "card_rakuten_biz": "💳 楽天(公)",
                 "card_amazon": "💳 Amazonカード", "sales_amazon": "🛍️ Amazon売上", "sales_ebay": "🛍️ eBay売上",
