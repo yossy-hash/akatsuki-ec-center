@@ -18,7 +18,7 @@ st.set_page_config(page_title="AKATSUKI 統合ECコマンドセンター", layou
 st.markdown("""
 <style>
     .block-container {
-        padding-top: 1.2rem !important;
+        padding-top: 3.5rem !important;
         padding-bottom: 0rem !important;
         padding-left: 1rem !important;
         padding-right: 1rem !important;
