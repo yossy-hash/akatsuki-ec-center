@@ -8,6 +8,7 @@ from components.tab8_import_matrix import render_tab8_import_matrix
 from components.tab9_csv_importer import render_tab9_csv_importer
 from components.tab10_rules import render_tab10_rules
 from components.tab11_transactions import render_tab11_transactions
+from components.tab12_summary_matrix import render_tab12_summary_matrix
 
 st.set_page_config(page_title="AKATSUKI 統合ECコマンドセンター", layout="wide")
 
@@ -96,6 +97,7 @@ NAV_ITEMS = [
     ("📋 取り込み進捗（星取り表）", "tab_import_matrix"),
     ("📥 CSV一括取り込み", "tab_csv_importer"),
     ("📑 整備済み取引データ", "tab_transactions"),
+    ("📊 月別収支サマリー", "tab_summary_matrix"),
     ("⚙️ 名寄せルール設定", "tab_rules")
 ]
 
@@ -154,6 +156,9 @@ elif selected_tab == "📥 CSV一括取り込み":
 
 elif selected_tab == "📑 整備済み取引データ":
     render_tab11_transactions()
+
+elif selected_tab == "📊 月別収支サマリー":
+    render_tab12_summary_matrix()
 
 elif selected_tab == "⚙️ 名寄せルール設定":
     render_tab10_rules()
