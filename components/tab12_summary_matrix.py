@@ -36,16 +36,25 @@ def render_tab12_summary_matrix():
         st.info("データがまだありません。CSV取り込み画面から取引データを登録してください。")
         return
 
-    # 日付から YYYY-MM を作成
-    df_tx["month"] = df_tx["date"].astype(str).str.slice(0, 7)
+    # 1. 日付列の整形と年月 (YYYY-MM) の全自動抽出（2025年・2026年両対応）
+    df_tx["date_str"] = df_tx["date"].astype(str).str.strip()
+    df_tx["month"] = df_tx["date_str"].str.slice(0, 7)
     df_tx["amount"] = pd.to_numeric(df_tx["amount"], errors="coerce").fillna(0)
 
-    # 取引の分類を付与
-    df_tx[["group", "sub_group"]] = df_tx.apply(categorize_transaction, axis=1, result_type="expand")
+    # 2. 有効な年月データのみにフィルタリング (例: 2025-02, 2026-01 など)
+    df_valid = df_tx[df_tx["month"].str.match(r"^\d{4}-\d{2}$")].copy()
 
-    # ピボットテーブル集計 (縦軸: グループ/サブグループ, 横軸: 月)
+    if df_valid.empty:
+        st.warning("有効な日付フォーマット（YYYY-MM-DD）の取引データが見つかりませんでした。")
+        st.dataframe(df_tx.head(), use_container_width=True)
+        return
+
+    # 3. 取引の分類を付与
+    df_valid[["group", "sub_group"]] = df_valid.apply(categorize_transaction, axis=1, result_type="expand")
+
+    # 4. ピボットテーブル集計 (縦軸: グループ/サブグループ, 横軸: 月)
     pivot_df = pd.pivot_table(
-        df_tx,
+        df_valid,
         index=["group", "sub_group"],
         columns="month",
         values="amount",
@@ -55,7 +64,7 @@ def render_tab12_summary_matrix():
 
     st.subheader("📈 月別・項目別収支表")
     
-    # カラム名を綺麗にフォーマット
+    # 表示フォーマット適用
     st.dataframe(
         pivot_df.style.format("￥{:,.0f}"),
         use_container_width=True
@@ -65,5 +74,5 @@ def render_tab12_summary_matrix():
     
     # 月別の合計サマリーグラフ表示
     st.subheader("📊 月別収支推移")
-    summary_by_month = df_tx.groupby(["month", "group"])["amount"].sum().unstack(fill_value=0)
+    summary_by_month = df_valid.groupby(["month", "group"])["amount"].sum().unstack(fill_value=0)
     st.bar_chart(summary_by_month)
