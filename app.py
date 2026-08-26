@@ -2,9 +2,11 @@ import streamlit as st
 import datetime
 import pandas as pd
 from utils.gas_api import load_sheet_data
-from components.tab1_inventory import render_tab1_inventory
+
+# --- 各タブ画面の関数を正しくインポート ---
+from components.tab1_research import render_tab1_research
 from components.tab3_listing import render_tab3_listing
-from components import tab2_master, tab4_sourcing, tab5_doc_generator
+from components import tab2_master, tab5_doc_generator
 from components.listing import sub_sold_pending, sub_sold_shipped, sub_sales_mgmt
 from components.tab8_import_matrix import render_tab8_import_matrix
 from components.tab9_csv_importer import render_tab9_csv_importer
@@ -74,19 +76,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 if "current_tab" not in st.session_state:
-    st.session_state["current_tab"] = "📦 在庫管理"
+    st.session_state["current_tab"] = "🔍 リサーチ・仕入れ"
 
 st.sidebar.markdown('<div class="sidebar-brand">⚡ AKATSUKI 統合EC</div>', unsafe_allow_html=True)
-# ===== 追記：現在の日付を表示 =====
+
 today_str = datetime.datetime.now().strftime("%Y年%m月%d日")
 st.sidebar.markdown(
     f'<div style="text-align: center; color: #94a3b8; font-size: 0.9rem; margin-bottom: 1.2rem; font-weight: 500;">📅 {today_str}</div>', 
     unsafe_allow_html=True
 )
-# ==================================
-
-
-
 
 NAV_ITEMS = [
     ("🔍 リサーチ・仕入れ", "tab_sourcing"),
@@ -114,23 +112,18 @@ for label, key_id in NAV_ITEMS:
 
 selected_tab = st.session_state["current_tab"]
 
-# 🔍 状況把握用デバッグ表示（展開して確認可能）
 with st.expander("🛠️ データ読み込み診断モニター（状況把握用）", expanded=False):
     st.write(f"**現在の選択タブ**: `{selected_tab}`")
 
-# ルーティング切替
+# --- ルーティング切替 ---
 if selected_tab == "🔍 リサーチ・仕入れ":
-    if hasattr(tab4_sourcing, "render"):
-        tab4_sourcing.render()
+    render_tab1_research()
 
 elif selected_tab == "📦 在庫管理":
     target_sheet = "EC_Inventory"
     df_raw_inventory = load_sheet_data(target_sheet)
-    
-    # 診断ログの表示
-    st.caption(f"🔍 参照シート: `{target_sheet}` | 取得件数: {len(df_raw_inventory)} 行 | 取得列: {list(df_raw_inventory.columns)}")
-    
-    render_tab1_inventory(df_raw_inventory)
+    st.caption(f"🔍 参照シート: `{target_sheet}` | 取得件数: {len(df_raw_inventory)} 行")
+    st.info("📦 在庫管理画面のコードを読み込み準備中です。")
 
 elif selected_tab == "📄 出品Docs作成":
     df_raw_inventory = load_sheet_data("EC_Inventory")
