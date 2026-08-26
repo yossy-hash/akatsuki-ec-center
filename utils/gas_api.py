@@ -50,3 +50,9 @@ def load_sheet_data(sheet_name: str) -> pd.DataFrame:
 def append_sheet_data(sheet_name: str, rows: list) -> bool:
     res = call_gas_action("append_data", {"sheet": sheet_name, "data": rows})
     return bool(res and res.get("status") == "success")
+
+
+def overwrite_sheet_data(sheet_name: str, rows: list) -> bool:
+    """指定したシートのデータを全件上書き更新する"""
+    res = call_gas_action("overwrite_data", {"sheet": sheet_name, "data": rows})
+    return bool(res and res.get("status") == "success")
