@@ -8,19 +8,46 @@ SHEET_ITEM = "M_Item"
 
 def render_tab1_research():
     st.title("🔍 マルチプラットフォーム・リサーチ＆ストック")
-    st.write("各プラットフォーム・Keepa・セラー情報からリサーチを行い、見込み商品を『M_Item』へ保存します。")
+    st.write("カテゴリを選び、各ECサイトの情報を切り替えて一元リサーチします。")
 
     df_items = load_sheet_data(SHEET_ITEM)
 
     # =========================================================================
-    # 【上半分】マルチリサーチ・データ収集ゾーン
+    # 【最上面】4大カテゴリ切り替えタイル（4列配置）
     # =========================================================================
-    st.markdown("### 1. 情報収集＆相場分析")
+    st.markdown("### 1. リサーチカテゴリ選択")
+    
+    if "selected_category" not in st.session_state:
+        st.session_state["selected_category"] = "📷 カメラ"
+
+    col_cat1, col_cat2, col_cat3, col_cat4 = st.columns(4)
+    
+    cats = [
+        ("🃏 トレカ", col_cat1),
+        ("📷 カメラ", col_cat2),
+        ("🧴 日用品", col_cat3),
+        ("🎮 ゲーム", col_cat4)
+    ]
+
+    for label, col in cats:
+        is_active = (st.session_state["selected_category"] == label)
+        btn_type = "primary" if is_active else "secondary"
+        if col.button(label, key=f"cat_btn_{label}", type=btn_type, use_container_width=True):
+            st.session_state["selected_category"] = label
+            st.rerun()
+
+    active_cat = st.session_state["selected_category"]
+    st.info(f"現在の選択カテゴリ: **{active_cat}**")
+
+    # =========================================================================
+    # 【中段】ECサイト切り替え＆相場分析ゾーン
+    # =========================================================================
+    st.markdown("### 2. ECサイト情報＆リサーチ")
     
     tab_keepa, tab_ebay, tab_jp, tab_seller = st.tabs([
         "📈 Keepa / Amazon", 
         "🌏 eBay / テラピーク", 
-        "🔨 ヤフオク・メルカリ・オークタウン", 
+        "🔨 ヤフオク・メルカリ", 
         "👤 マーク中セラー追跡"
     ])
 
@@ -30,34 +57,29 @@ def render_tab1_research():
     with tab_keepa:
         col_k1, col_k2 = st.columns([1, 2])
         with col_k1:
-            k_jan = st.text_input("JAN / ASIN / 商品ID", value="4901301407764", key="k_jan")
-            k_title = st.text_input("商品名（仮）", value="花王 UVカットローション 3個セット", key="k_title")
-            k_supplier = st.text_input("仕入れ候補・購入先メモ", value="マツモトキヨシ 名古屋駅前店", key="k_supplier")
+            k_jan = st.text_input("JAN / ASIN", value="4901301407764", key="k_jan")
+            k_title = st.text_input("商品名", value=f"[{active_cat}] 花王 UVカットローション", key="k_title")
+            k_supplier = st.text_input("仕入れ候補・店舗メモ", value="マツモトキヨシ", key="k_supplier")
             k_buy_price = st.number_input("想定仕入額 (円)", value=2100, step=100, key="k_buy")
             k_sell_price = st.number_input("Amazon想定販売額 (円)", value=3980, step=100, key="k_sell")
             
             k_profit = int(k_sell_price - k_buy_price - (k_sell_price * 0.15) - 500)
             st.metric("見込み純利益 (概算)", f"￥{k_profit:,}")
 
-            # 🔗 人間がクリックして開く直リンク
             amazon_url = f"https://www.amazon.co.jp/s?k={urllib.parse.quote(k_jan)}"
-            keepa_url = f"https://keepa.com/#!search/5-{urllib.parse.quote(k_jan)}"
-            
-            st.markdown(f"🔗 **外部サイト直リンク (クリックで開く)**")
-            st.markdown(f"- 📦 [Amazonで `{k_jan}` を検索]({amazon_url})")
-            st.markdown(f"- 📈 [Keepaで `{k_jan}` を解析]({keepa_url})")
+            st.markdown(f"🔗 [Amazonで `{k_jan}` を直接開く]({amazon_url})")
 
         with col_k2:
-            st.caption("📷 Keepaデータ＆グラフプレビュー")
-            st.info("📈 **[Keepa Data]** 現在最安値: ¥3,980 | 過去90日平均BSR: 1,450位 | FBA出品者数: 4名")
+            st.caption(f"📷 Keepaデータ ({active_cat})")
+            st.info("📈 **[Keepa Data]** 最安値: ¥3,980 | 過去90日平均BSR: 1,450位 | FBA: 4名")
             st.markdown("---")
-            if st.button("➕ この商品を『M_Item』へストック保存 (Amazon向け)", type="primary", key="save_keepa"):
+            if st.button("➕ この商品を『M_Item』へストック保存", type="primary", key="save_keepa"):
                 now_str = datetime.now().strftime("%Y%m%d%H%M%S")
                 new_item = {
                     "item_id": f"ITM-{now_str[-6:]}",
                     "jan_asin": k_jan,
                     "item_name": k_title,
-                    "category": "ドラッグストア",
+                    "category": active_cat,
                     "supplier": k_supplier,
                     "target_platform": "Amazon",
                     "purchase_status": "購入前",
@@ -69,8 +91,6 @@ def render_tab1_research():
                 if append_sheet_data(SHEET_ITEM, [new_item]):
                     st.success("M_Itemへ正常保存しました！")
                     st.rerun()
-                else:
-                    st.error("保存に失敗しました。")
 
     # -------------------------------------------------------------------------
     # TAB 2: eBay / テラピーク
@@ -78,10 +98,10 @@ def render_tab1_research():
     with tab_ebay:
         col_e1, col_e2 = st.columns([1, 2])
         with col_e1:
-            e_id = st.text_input("商品識別コード / 型番", value="NIKON-D750-BODY", key="e_id")
-            e_title = st.text_input("英語商品名 / 型番", value="Nikon D750 Body Excellent+", key="e_title")
-            e_supplier = st.text_input("仕入れ候補 URL / 店舗名", value="ヤフオク (Seller: camera_shop)", key="e_supplier")
-            e_buy_price = st.number_input("メルカリ/ヤフオク仕入想定額 (円)", value=38000, step=1000, key="e_buy")
+            e_id = st.text_input("商品コード / 型番", value="MODEL-12345", key="e_id")
+            e_title = st.text_input("英語商品名", value=f"Nikon D750 Body Excellent+", key="e_title")
+            e_supplier = st.text_input("仕入れ候補 URL / 店舗", value="ヤフオク", key="e_supplier")
+            e_buy_price = st.number_input("仕入想定額 (円)", value=38000, step=1000, key="e_buy")
             e_sell_usd = st.number_input("eBay想定販売額 ($)", value=380.0, step=10.0, key="e_sell")
             e_rate = st.number_input("想定為替レート (円/$)", value=150.0, step=1.0, key="e_rate")
             
@@ -89,22 +109,20 @@ def render_tab1_research():
             e_profit = int(e_sell_jpy - e_buy_price - (e_sell_jpy * 0.15) - 3000)
             st.metric("見込み純利益 (概算)", f"￥{e_profit:,} (売上: ￥{e_sell_jpy:,})")
 
-            # 🔗 人間がクリックして開く直リンク
             ebay_url = f"https://www.ebay.com/sch/i.html?_nkw={urllib.parse.quote(e_title)}&LH_Sold=1&LH_Complete=1"
-            st.markdown(f"🔗 **外部サイト直リンク (クリックで開く)**")
-            st.markdown(f"- 🌏 [eBay SOLD履歴で `{e_title}` を検索]({ebay_url})")
+            st.markdown(f"🔗 [eBay SOLD履歴で `{e_title}` を開く]({ebay_url})")
 
         with col_e2:
-            st.caption("🌏 テラピーク・相場サマリー")
-            st.info("📊 **[eBay SOLD 相場]** 直近90日落札平均: $385.00 | 落札率: 78% | 売れ筋コンディション: Excellent+")
+            st.caption(f"🌏 テラピーク・相場サマリー ({active_cat})")
+            st.info("📊 **[eBay SOLD 相場]** 直近90日落札平均: $385.00 | 落札率: 78%")
             st.markdown("---")
-            if st.button("➕ この商品を『M_Item』へストック保存 (eBay向け)", type="primary", key="save_ebay"):
+            if st.button("➕ この商品を『M_Item』へストック保存", type="primary", key="save_ebay"):
                 now_id = datetime.now().strftime("%Y%m%d%H%M%S")
                 new_item = {
                     "item_id": f"ITM-{now_id[-6:]}",
                     "jan_asin": e_id,
                     "item_name": e_title,
-                    "category": "中古カメラ",
+                    "category": active_cat,
                     "supplier": e_supplier,
                     "target_platform": "eBay",
                     "purchase_status": "購入前",
@@ -116,53 +134,45 @@ def render_tab1_research():
                 if append_sheet_data(SHEET_ITEM, [new_item]):
                     st.success("M_Itemへ正常保存しました！")
                     st.rerun()
-                else:
-                    st.error("保存に失敗しました。")
 
     # -------------------------------------------------------------------------
-    # TAB 3: ヤフオク・メルカリ・オークタウン
+    # TAB 3: ヤフオク・メルカリ
     # -------------------------------------------------------------------------
     with tab_jp:
         col_j1, col_j2 = st.columns([1, 2])
         with col_j1:
-            j_title = st.text_input("国内検索キーワード", value="ニコン D750 ボディ 美品", key="j_title")
+            j_title = st.text_input("検索キーワード", value=f"{active_cat.split()[-1]} 美品", key="j_title")
             j_buy_limit = st.number_input("仕入れ上限価格 (円)", value=32000, step=1000, key="j_limit")
             
-            # 🔗 人間がクリックして開く直リンク
             yafuok_url = f"https://auctions.yahoo.co.jp/search/search?p={urllib.parse.quote(j_title)}"
             mercari_url = f"https://jp.mercari.com/search?keyword={urllib.parse.quote(j_title)}"
             
-            st.markdown(f"🔗 **仕入れサイト検索直リンク (クリックで開く)**")
-            st.markdown(f"- 🔨 [ヤフオクで `{j_title}` を検索]({yafuok_url})")
-            st.markdown(f"- 🔴 [メルカリで `{j_title}` を検索]({mercari_url})")
+            st.markdown(f"- 🔨 [ヤフオクで `{j_title}` を開く]({yafuok_url})")
+            st.markdown(f"- 🔴 [メルカリで `{j_title}` を開く]({mercari_url})")
 
         with col_j2:
-            st.write("🔗 **外部管理ツール**")
-            st.markdown("- [オークファンで相場確認](https://aucfan.com/)")
-            st.markdown("- [オークタウンで一括出品準備](https://auktown.jp/)")
+            st.write("🔗 **相場ツール**")
+            st.markdown("- [オークファンで確認](https://aucfan.com/)")
 
     # -------------------------------------------------------------------------
     # TAB 4: セラー追跡
     # -------------------------------------------------------------------------
     with tab_seller:
-        st.subheader("👤 マーク中神セラー・追跡リスト")
+        st.subheader(f"👤 【{active_cat}】マーク中神セラー")
         col_s1, col_s2 = st.columns([1, 1])
         with col_s1:
-            st.markdown("🔗 **神セラーショップ直リンク (クリックで移動)**")
-            st.markdown("- 🌏 [【eBay】Camera_Japan_Store の出品一覧](https://www.ebay.com/usr/Camera_Japan_Store)")
-            st.markdown("- 📦 [【Amazon】ドラッグストア格安堂 の評価ページ](https://www.amazon.co.jp/)")
-            st.markdown("- 🔴 [【メルカリ】カメラ専門☆即購入OK の出品ページ](https://jp.mercari.com/)")
+            st.markdown("- 🌏 [【eBay】神セラー1](https://www.ebay.com/)")
+            st.markdown("- 🔴 [【メルカリ】神セラー2](https://jp.mercari.com/)")
             
         with col_s2:
-            st.text_input("新規セラーID/URLを追加メモ", placeholder="Seller IDを入力...", key="new_seller")
+            st.text_input("新規セラーメモ", placeholder="Seller ID...", key="new_seller")
             st.button("➕ セラーを記憶", key="btn_save_seller")
 
     # =========================================================================
-    # 【下半分】気になるアイテム保存リスト（M_Item ワークスペース）
+    # 【下段】気になるアイテム保存リスト（M_Item）
     # =========================================================================
     st.markdown("---")
-    st.markdown("### 2. 気になるアイテム保存リスト (`M_Item`)")
-    st.write("仕入れ候補・価格・購入状況（購入前/予定/済）を統合管理するワークスペースです。")
+    st.markdown("### 3. 気になるアイテム保存リスト (`M_Item`)")
 
     if not df_items.empty:
         if "purchase_status" not in df_items.columns:
@@ -174,6 +184,7 @@ def render_tab1_research():
             "item_id", 
             "jan_asin", 
             "item_name", 
+            "category",
             "supplier", 
             "purchase_status", 
             "est_purchase_price", 
@@ -191,7 +202,8 @@ def render_tab1_research():
                 "item_id": "管理ID",
                 "jan_asin": "JAN/ASIN/固有ID",
                 "item_name": "商品名",
-                "supplier": "仕入れ候補（店舗/URL）",
+                "category": "カテゴリ",
+                "supplier": "仕入れ候補",
                 "purchase_status": st.column_config.SelectboxColumn(
                     "購入ステータス",
                     options=["購入前", "購入予定", "購入済"],
@@ -204,4 +216,4 @@ def render_tab1_research():
             }
         )
     else:
-        st.info("現在保存されているリサーチ候補はありません。上部のタブから商品を追加してください。")
+        st.info("現在保存されているリサーチ候補はありません。")
